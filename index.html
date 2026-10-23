@@ -588,8 +588,9 @@ html{scroll-padding-top:54px!important}.carte{scroll-margin-top:0!important}.top
   <div class="dr-f" id="drFoot"></div>
 </aside>
 
+<script src="backend.js"></script>
 <script>
-(()=>{
+(async()=>{
 "use strict";
 const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
@@ -731,7 +732,7 @@ $$("[data-scene]").forEach(b=>b.onclick=()=>window.scrollTo({top:walk.offsetTop+
 requestAnimationFrame(loop);
 
 /* ===== menu (sample, the owner edits it daily) ===== */
-const MENU=[
+let MENU=[
  {id:"plats",name:"Plats",img:"viande-riz-source",items:[
   {id:"pdj",n:"Fricassé de crevettes",d:"Plat du jour · riz jaune",p:1200,img:"gambas-source"},
   {id:"viande",n:"Viande en sauce + riz",d:"Riz blanc ou riz madras",p:900,img:"viande-riz-source"},
@@ -761,18 +762,23 @@ const MENU=[
   {id:"glace",n:"Pot de glace",d:"Selon la saison",p:300,img:"tarte-coco-source"},
   {id:"tiramisu",n:"Tiramisu maison",d:"Parfums selon disponibilité · prix à confirmer",p:0,img:"tarte-coco-source"}]}
 ];
-const ITEMS={}; MENU.forEach(c=>c.items.forEach(i=>ITEMS[i.id]=i)); ITEMS.pdj={id:"pdj",n:"Fricassé de crevettes",d:"Plat du jour · riz jaune",p:1200,img:"gambas-source"};
+let backendReady=false;
+const html=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+try {const rows=await KC.api('/rest/v1/kc_menu?select=*&order=sort_order.asc');const groups=[['plats','Plats'],['poulet','Poulet-frites'],['sandwich','Sandwichs'],['aperitif','Apéritif'],['douceurs','Douceurs & boissons']];MENU=groups.map(([id,name])=>({id,name,items:rows.filter(r=>r.category===name).map(r=>({id:r.id,n:html(r.name),d:html(r.description),p:r.price,photo:r.photo,available:r.available,featured:r.featured}))})).filter(c=>c.items.length);backendReady=true;}catch(e){console.warn('Menu unavailable');}
+const ITEMS={};MENU.forEach(c=>c.items.forEach(i=>ITEMS[i.id]=i));
+const photoFor=it=>{try{const u=new URL(it.photo||('img/'+it.img+'.webp'),location.href);return ['https:','http:'].includes(u.protocol)?html(u.href):''}catch{return ''}};
+
 
 let cart={}; try{cart=JSON.parse(localStorage.getItem("kc-cart")||"{}")||{}}catch(e){cart={}}
-Object.keys(cart).forEach(k=>{if(!ITEMS[k]||!Number.isSafeInteger(cart[k])||cart[k]<1||cart[k]>99)delete cart[k]});
+Object.keys(cart).forEach(k=>{if(!ITEMS[k]||ITEMS[k].available===false||!Number.isSafeInteger(cart[k])||cart[k]<1||cart[k]>20)delete cart[k]});
 const save=()=>{try{localStorage.setItem("kc-cart",JSON.stringify(cart))}catch(e){}};
 const count=()=>Object.values(cart).reduce((a,b)=>a+b,0), total=()=>Object.entries(cart).reduce((a,[k,q])=>a+ITEMS[k].p*q,0);
-function ctl(id){ if(!ITEMS[id]?.p)return `<span class="menu-call">Sur appel</span>`; const q=cart[id]||0; return q?`<span class="step" data-id="${id}"><button type="button" data-a="-" aria-label="Retirer un">−</button><span aria-live="polite">${q}</span><button type="button" data-a="+" aria-label="Ajouter un">+</button></span>`:`<button class="add" type="button" data-id="${id}" data-a="+">Ajouter</button>` }
+function ctl(id){ if(!backendReady)return '<span class="menu-call">Appelez la boutique</span>'; if(ITEMS[id]?.available===false)return '<span class="menu-call">Épuisé</span>'; if(!ITEMS[id]?.p)return `<span class="menu-call">Sur appel</span>`; const q=cart[id]||0; return q?`<span class="step" data-id="${id}"><button type="button" data-a="-" aria-label="Retirer un">−</button><span aria-live="polite">${q}</span><button type="button" data-a="+" aria-label="Ajouter un">+</button></span>`:`<button class="add" type="button" data-id="${id}" data-a="+">Ajouter</button>` }
 
 const carte=$("#carte");
 const menuPhoto=(it,cat)=>it.img||cat.img||"tarte-coco-source";
-const featuredItems=["pdj","viande","poisson","am"].map(id=>ITEMS[id]);
-carte.innerHTML=`<div class="stripe madras" aria-hidden="true"></div><div class="wrap gutter"><div class="carte-head"><div><div class="eyebrow">La carte · commande à emporter</div><h2 class="h2" id="carteT">Choisissez <em>vos plats</em></h2><p class="lede">Choisissez vos envies, composez votre panier et appelez la boutique pour préparer votre retrait.</p></div><div class="cash"><span><b>À emporter</b>Retrait au 19 rue de la Marivoise</span></div></div><section class="menu-featured" aria-label="Nos incontournables"><div class="menu-featured-heading"><div><span>La sélection Kay Charly</span><h3>Les incontournables</h3></div></div>${featuredItems.map((it,i)=>`<article class="menu-featured-card"><img src="img/${menuPhoto(it,MENU.find(c=>c.items.includes(it)))}.webp" alt="${it.n}" loading="eager"><div class="menu-featured-copy"><small>${["Plat du jour","Fait maison","Côté mer","À partager"][i]}</small><h3>${it.n}</h3><div class="menu-featured-buy"><b>${it.p?eur(it.p):"À confirmer"}</b>${it.p?ctl(it.id):"<span class=menu-call>Sur appel</span>"}</div></div></article>`).join("")}</section><div class="menu-order" id="menu-complet"><nav class="category-nav" aria-label="Catégories du menu"><button type="button" data-category="all" aria-pressed="true">Tout</button>${MENU.map(c=>`<button type="button" data-category="${c.id}" aria-pressed="false">${c.name}</button>`).join("")}</nav>${MENU.map((c,ci)=>`<section class="cat" id="menu-${c.id}"><div class="ttl"><h3>${c.name}</h3><span class="n">${String(ci+1).padStart(2,"0")}</span></div>${c.items.map((it,ii)=>`<article class="it"><img src="img/${menuPhoto(it,c)}.webp" alt="${it.n}" loading="${ci===0&&ii<2?"eager":"lazy"}"><h4>${it.n}</h4><small>${it.d}</small><div class="r"><span class="pr">${it.p?eur(it.p):"À confirmer"}</span><span data-ctl="${it.id}">${it.p?ctl(it.id):"Sur appel"}</span></div></article>`).join("")}</section>`).join("")}<p class="menu-footnote">Les tarifs et la disponibilité changent selon les arrivages. Appelez le <a href="tel:+33783446171">07 83 44 61 71</a> pour confirmer votre commande. Le panier du site est une démonstration et ne transmet pas de commande.</p></div></div>`;
+const featuredItems=Object.values(ITEMS).filter(i=>i.featured).slice(0,4);
+carte.innerHTML=`<div class="stripe madras" aria-hidden="true"></div><div class="wrap gutter"><div class="carte-head"><div><div class="eyebrow">La carte · commande à emporter</div><h2 class="h2" id="carteT">Choisissez <em>vos plats</em></h2><p class="lede">Choisissez vos envies, composez votre panier et réservez votre retrait en boutique.</p></div><div class="cash"><span><b>À emporter</b>Retrait au 19 rue de la Marivoise</span></div></div><section class="menu-featured" aria-label="Nos incontournables"><div class="menu-featured-heading"><div><span>La sélection Kay Charly</span><h3>Les incontournables</h3></div></div>${featuredItems.map((it,i)=>`<article class="menu-featured-card"><img src="${photoFor(it)}" alt="${it.n}" loading="eager"><div class="menu-featured-copy"><small>${["Plat du jour","Fait maison","Côté mer","À partager"][i]}</small><h3>${it.n}</h3><div class="menu-featured-buy"><b>${it.p?eur(it.p):"À confirmer"}</b>${it.p?ctl(it.id):"<span class=menu-call>Sur appel</span>"}</div></div></article>`).join("")}</section><div class="menu-order" id="menu-complet"><nav class="category-nav" aria-label="Catégories du menu"><button type="button" data-category="all" aria-pressed="true">Tout</button>${MENU.map(c=>`<button type="button" data-category="${c.id}" aria-pressed="false">${c.name}</button>`).join("")}</nav>${MENU.map((c,ci)=>`<section class="cat" id="menu-${c.id}"><div class="ttl"><h3>${c.name}</h3><span class="n">${String(ci+1).padStart(2,"0")}</span></div>${c.items.map((it,ii)=>`<article class="it"><img src="${photoFor(it)}" alt="${it.n}" loading="${ci===0&&ii<2?"eager":"lazy"}"><h4>${it.n}</h4><small>${it.d}</small><div class="r"><span class="pr">${it.p?eur(it.p):"À confirmer"}</span><span data-ctl="${it.id}">${it.p?ctl(it.id):"Sur appel"}</span></div></article>`).join("")}</section>`).join("")}<p class="menu-footnote">Les tarifs et la disponibilité changent selon les arrivages. Appelez le <a href="tel:+33783446171">07 83 44 61 71</a> pour confirmer votre commande. Votre commande sera transmise à la boutique. Paiement en espèces au retrait.</p></div></div>`;
 const filterButtons=$$(".category-nav [data-category]");
 filterButtons.forEach(button=>button.addEventListener("click",()=>{
  const selected=button.dataset.category;
@@ -783,7 +789,7 @@ filterButtons.forEach(button=>button.addEventListener("click",()=>{
 }));
 
 const menuSheet=document.createElement("dialog");menuSheet.id="menuSheet";menuSheet.className="menu-sheet";menuSheet.setAttribute("aria-labelledby","menuSheetTitle");
-menuSheet.innerHTML=`<header><div><span class="eyebrow">Kay Charly</span><h2 id="menuSheetTitle">Votre sélection</h2></div><button type="button" id="closeMenu" aria-label="Fermer la carte">×</button></header><p>Ajoutez vos plats au panier puis appelez pour confirmer le retrait.</p><div class="menu-sheet-categories">${MENU.map(c=>`<section><h3>${c.name}</h3>${c.items.map(it=>`<article><img src="img/${menuPhoto(it,c)}.webp" alt=""><div><h4>${it.n}</h4><small>${it.d}</small></div><strong>${it.p?eur(it.p):"À confirmer"}</strong><span data-ctl="${it.id}">${it.p?ctl(it.id):"Sur appel"}</span></article>`).join("")}</section>`).join("")}</div><button class="btn" id="menuBasket" type="button">Voir mon panier</button>`;
+menuSheet.innerHTML=`<header><div><span class="eyebrow">Kay Charly</span><h2 id="menuSheetTitle">Votre sélection</h2></div><button type="button" id="closeMenu" aria-label="Fermer la carte">×</button></header><p>Ajoutez vos plats au panier puis appelez pour confirmer le retrait.</p><div class="menu-sheet-categories">${MENU.map(c=>`<section><h3>${c.name}</h3>${c.items.map(it=>`<article><img src="${photoFor(it)}" alt=""><div><h4>${it.n}</h4><small>${it.d}</small></div><strong>${it.p?eur(it.p):"À confirmer"}</strong><span data-ctl="${it.id}">${it.p?ctl(it.id):"Sur appel"}</span></article>`).join("")}</section>`).join("")}</div><button class="btn" id="menuBasket" type="button">Voir mon panier</button>`;
 document.body.appendChild(menuSheet);
 $("#fullMenu")?.addEventListener("click",()=>menuSheet.showModal());$("#closeMenu").onclick=()=>menuSheet.close();$("#menuBasket").onclick=()=>{menuSheet.close();openDrawer()};
 menuSheet.addEventListener("click",e=>{if(e.target===menuSheet)menuSheet.close()});
@@ -794,12 +800,12 @@ function refresh(){ $$("[data-ctl]").forEach(el=>el.innerHTML=ctl(el.dataset.ctl
   $("#dock").classList.toggle("show",n>0&&!drawer.classList.contains("show")); save(); if(drawer.classList.contains("show")&&view==="cart") renderCart() }
 function bumpCart(){ const c=$("#cartBtn"); c.classList.remove("bump"); void c.offsetWidth; c.classList.add("bump") }
 function fly(btn,id){ if(reduce) return bumpCart(); const src=ITEMS[id].img; if(!src) return bumpCart();
-  const a=btn.getBoundingClientRect(), b=$("#cartBtn").getBoundingClientRect(); const f=document.createElement("img"); f.src=`img/${src}.webp`; f.className="flyer"; f.alt="";
+  const a=btn.getBoundingClientRect(), b=$("#cartBtn").getBoundingClientRect(); const f=document.createElement("img"); f.src=photoFor(ITEMS[id]); f.className="flyer"; f.alt="";
   f.style.left=(a.left+a.width/2-23)+"px"; f.style.top=(a.top+a.height/2-23)+"px"; document.body.appendChild(f);
   const dx=b.left+b.width/2-(a.left+a.width/2), dy=b.top+b.height/2-(a.top+a.height/2);
   f.animate([{transform:"translate(0,0) scale(.6)",opacity:0},{transform:`translate(${dx*.4}px,${dy*.4-90}px) scale(1.1)`,opacity:1,offset:.45},{transform:`translate(${dx}px,${dy}px) scale(.3)`,opacity:.5}],{duration:750,easing:"cubic-bezier(.5,0,.35,1)"}).onfinish=()=>{f.remove();bumpCart()} }
 document.addEventListener("click",e=>{ const b=e.target.closest("[data-a]"); if(!b)return; const id=b.dataset.id||b.closest("[data-id]")?.dataset.id; if(!id||!ITEMS[id])return;
-  if(b.dataset.a==="+"){ const was=cart[id]||0; cart[id]=Math.min(99,was+1); if(!was) fly(b,id); else bumpCart() } else { cart[id]=(cart[id]||0)-1; if(cart[id]<=0) delete cart[id] } refresh() });
+  if(b.dataset.a==="+"&&(!backendReady||ITEMS[id].available===false))return; if(b.dataset.a==="+"){ const was=cart[id]||0; cart[id]=Math.min(20,was+1); if(!was) fly(b,id); else bumpCart() } else { cart[id]=(cart[id]||0)-1; if(cart[id]<=0) delete cart[id] } refresh() });
 
 /* drawer */
 const drawer=$("#drawer"), scrim=$("#scrim"), body=$("#drBody"), foot=$("#drFoot"); let view="cart", lastFocus=null;
@@ -819,24 +825,27 @@ function slots(){ const now=paris(); for(let k=0;k<8;k++){ const d=(now.d+k)%7, 
     if(out.length) return out.map(m=>({v:k+"-"+m,label:(k===0?"Aujourd'hui":k===1?"Demain":DAYS[d])+" · "+hm(m)})) } return [] }
 function renderCart(){ const ent=Object.entries(cart);
   if(!ent.length){ body.innerHTML=`<div class="empty"><div class="e">Votre panier est vide</div><p>Ajoutez un plat depuis la carte pour commencer.</p></div>`; foot.innerHTML=`<button class="btn" type="button" id="toMenu">Voir la carte</button>`; $("#toMenu").onclick=()=>{closeDrawer();$("#carte").scrollIntoView({behavior:reduce?"auto":"smooth"})}; return }
-  body.innerHTML=ent.map(([k,q])=>{const it=ITEMS[k];return `<div class="line">${it.img?`<img src="img/${it.img}.webp" alt="">`:`<span class="ni madras"></span>`}<div><h5>${it.n}</h5><small>${eur(it.p)} × ${q} = ${eur(it.p*q)}</small></div><span data-ctl="${k}">${ctl(k)}</span></div>`}).join("")
-   +`<p class="demo">Démonstration : aucune commande ne sera transmise. Les prix sont indicatifs.</p><form class="form" id="order" novalidate>
+  body.innerHTML=ent.map(([k,q])=>{const it=ITEMS[k];return `<div class="line">${(it.img||it.photo)?`<img src="${photoFor(it)}" alt="">`:`<span class="ni madras"></span>`}<div><h5>${it.n}</h5><small>${eur(it.p)} × ${q} = ${eur(it.p*q)}</small></div><span data-ctl="${k}">${ctl(k)}</span></div>`}).join("")
+   +`<p class="demo">Votre commande sera envoyée à Kay Charly. Téléphone, nom et éventuel repère sont transmis à la boutique pour préparer votre retrait.</p><form class="form" id="order" novalidate>
       <div class="f"><label for="oName">Prénom et nom</label><input id="oName" autocomplete="name" required maxlength="60"><div class="err" id="eName" hidden>Indiquez votre nom pour qu'on reconnaisse votre commande.</div></div>
       <div class="f"><label for="oTel">Téléphone</label><input id="oTel" type="tel" inputmode="tel" autocomplete="tel" placeholder="06 12 34 56 78" required><div class="err" id="eTel" hidden>Entrez un numéro français à 10 chiffres, par exemple 06 12 34 56 78.</div></div>
       <div class="f"><label for="oSlot">Heure de retrait</label><select id="oSlot">${slots().map(s=>`<option value="${s.v}">${s.label}</option>`).join("")}</select></div>
-      <div class="f"><label for="oAddress">Adresse / repère (facultatif)</label><div class="loc-row"><input id="oAddress" autocomplete="street-address" maxlength="160" placeholder="Adresse ou point de repère"><button class="loc-btn" type="button" id="useLocation">◎ Ma position</button></div><p class="loc-note">La position GPS est utilisée seulement après votre clic. Si vous ouvrez le lien carte, les coordonnées seront partagées avec OpenStreetMap. Aucune commande n’est envoyée.</p><div class="loc-status" id="locStatus" aria-live="polite"></div></div>
+      <div class="f"><label for="oAddress">Adresse / repère (facultatif)</label><div class="loc-row"><input id="oAddress" autocomplete="street-address" maxlength="160" placeholder="Adresse ou point de repère"><button class="loc-btn" type="button" id="useLocation">◎ Ma position</button></div><p class="loc-note">La position GPS est utilisée seulement après votre clic. Si vous ouvrez le lien carte, les coordonnées seront partagées avec OpenStreetMap. Le repère sera joint à votre commande.</p><div class="loc-status" id="locStatus" aria-live="polite"></div></div>
       <div class="f"><label for="oNote">Remarque (allergies, piment…)</label><textarea id="oNote" rows="2" maxlength="300"></textarea></div>
       <div class="paybox"><span class="ic" aria-hidden="true">💶</span><span><b>Paiement en espèces au retrait</b><small>Aucun paiement en ligne. Vous réglez en boutique.</small></span></div>
     </form>`;
-  foot.innerHTML=`<div class="tot"><span>Total à régler sur place</span><b>${eur(total())}</b></div><button class="btn" type="submit" form="order" id="send">Tester ma commande</button>`;
+  foot.innerHTML=`<div class="tot"><span>Total à régler sur place</span><b>${eur(total())}</b></div><button class="btn" type="submit" form="order" id="send">Envoyer ma commande</button>`;
   $("#order").addEventListener("submit",submit);
   $("#useLocation").addEventListener("click",()=>{const button=$("#useLocation"),statusEl=$("#locStatus");if(!navigator.geolocation){statusEl.textContent="La géolocalisation n’est pas disponible dans ce navigateur.";return}button.disabled=true;statusEl.textContent="Recherche de votre position… Autorisez-la dans votre navigateur.";navigator.geolocation.getCurrentPosition(pos=>{const lat=pos.coords.latitude.toFixed(5),lon=pos.coords.longitude.toFixed(5),address=$("#oAddress");address.value=`${lat}, ${lon}`;address.dataset.latitude=lat;address.dataset.longitude=lon;statusEl.textContent="Position ajoutée (coordonnées GPS). ";const link=document.createElement("a");link.href=`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}`;link.target="_blank";link.rel="noopener noreferrer";link.textContent="Voir sur la carte";statusEl.append(link);button.disabled=false},err=>{statusEl.textContent=err.code===1?"Autorisation refusée. Vous pouvez saisir une adresse manuellement.":"Position introuvable. Réessayez ou saisissez une adresse.";button.disabled=false},{enableHighAccuracy:true,timeout:12000,maximumAge:300000})}) }
-function submit(e){ e.preventDefault(); const name=$("#oName").value.trim(), tel=$("#oTel").value.replace(/[\s.\-]/g,"").replace(/^\+33/,"0"), address=$("#oAddress")?.value.trim()||"";
+let orderRequestId=crypto.randomUUID();
+async function submit(e){ e.preventDefault(); const name=$("#oName").value.trim(), tel=$("#oTel").value.replace(/[\s.\-]/g,"").replace(/^\+33/,"0"), address=$("#oAddress")?.value.trim()||"";
   const escapeHtml=s=>s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); const safeName=escapeHtml(name), safeAddress=escapeHtml(address); const okN=name.length>=2, okT=/^0[1-9]\d{8}$/.test(tel); $("#eName").hidden=okN; $("#eTel").hidden=okT; if(!okN){$("#oName").focus();return} if(!okT){$("#oTel").focus();return}
-  const btn=$("#send"); btn.disabled=true; btn.textContent="Préparation de l’aperçu…";
-  setTimeout(()=>{ const slot=$("#oSlot").selectedOptions[0]?.textContent||"Dès que possible", tot=total(), num="KC-"+(1000+Math.floor(Math.random()*9000)); view="done"; cart={}; save();
-    body.innerHTML=`<div class="done"><div class="tick"><svg viewBox="0 0 52 52"><path d="M14 27l8 8 16-18"/></svg></div><h3>Votre aperçu, ${safeName.split(" ")[0]}</h3><div class="num">DÉMONSTRATION</div><p>Retrait : <b>${slot}</b><br>19 rue de la Marivoise, Champcueil</p>${safeAddress?`<p>Repère indiqué dans cet aperçu : <b>${safeAddress}</b></p>`:""}<p>À régler en espèces au retrait : <b>${eur(tot)}</b></p><p class="demo">Aperçu de démonstration : cette commande n'a été envoyée à personne. Pour une vraie commande, appelez le 07 83 44 61 71.</p></div>`;
-    foot.innerHTML=`<a class="btn" href="tel:+33783446171">Appeler pour commander</a><button class="btn" type="button" id="again">Retour à la carte</button>`; $("#again").onclick=closeDrawer; refresh() },900) }
+  const btn=$("#send");btn.disabled=true;btn.textContent="Envoi en cours…";
+  try {if(!backendReady)throw Error('Connexion indisponible. Appelez la boutique.');const slot=$("#oSlot").selectedOptions[0]?.textContent||'';const receipt=await KC.api('/rest/v1/rpc/kc_place_order',{method:'POST',body:{p_request_id:orderRequestId,p_name:name,p_phone:tel,p_address:address,p_note:$("#oNote").value,p_pickup:slot,p_items:Object.entries(cart).map(([id,quantity])=>({id,quantity}))}});orderRequestId=crypto.randomUUID();view="done";cart={};save();
+  body.innerHTML=`<div class="done"><div class="tick">✓</div><h3>Merci ${safeName.split(' ')[0]} !</h3><div class="num">${html(receipt.reference)}</div><p>Votre commande a été reçue par Kay Charly.</p><p>Retrait souhaité : <b>${html(slot)}</b><br>19 rue de la Marivoise, Champcueil</p><p>À régler en espèces au retrait : <b>${eur(receipt.total)}</b></p><p>Pour confirmer votre horaire ou modifier votre commande, appelez la boutique.</p></div>`;
+  foot.innerHTML=`<a class="btn" href="tel:+33783446171">Appeler la boutique</a><button class="btn" type="button" id="again">Retour à la carte</button>`;$("#again").onclick=closeDrawer;refresh();
+  }catch(err){btn.disabled=false;btn.textContent="Réessayer l’envoi";let msg=$("#orderError");if(!msg){msg=document.createElement('p');msg.id='orderError';msg.setAttribute('role','alert');$("#order").prepend(msg)}msg.textContent='Commande non confirmée : '+err.message+'. Votre panier est conservé.';}
+}
 
 function status(){ const now=paris(), s=HOURS[now.d]; const cur=s&&s.find(([a,b])=>now.m>=a&&now.m<b); let sub;
   if(cur) sub="Ouvert jusqu'à "+hm(cur[1]); else { let nx=null; for(let k=0;k<8&&!nx;k++){ const d=(now.d+k)%7, ss=HOURS[d]; if(!ss)continue; for(const [a] of ss){ if(k>0||a>now.m){nx={k,d,a};break} } } sub=nx?("Rouvre "+(nx.k===0?"aujourd'hui":nx.k===1?"demain":DAYS[nx.d].toLowerCase())+" à "+hm(nx.a)):"" }
