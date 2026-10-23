@@ -2,7 +2,7 @@
 
 Static restaurant storefront hosted on GitHub Pages, with a Supabase database and authenticated administration.
 
-- `index.html`: storefront, live menu, category filters, cart and pickup checkout.
+- `index.html`: storefront, live menu, category filters, cart, takeaway and delivery checkout.
 - `admin.html`, `admin.js`, `admin.css`: authenticated order management, search/status/date filters, daily menu, prices, photos, featured dishes and availability.
 - `backend.js`: public Supabase URL and publishable key only. Never add a service-role key or passwords here.
 - `supabase/schema.sql`: database schema, RLS, server-calculated order totals and initial menu seed. Run once in a new project.
@@ -17,6 +17,6 @@ The internal identifier does not have an email inbox; password recovery must be 
 
 ## Orders
 
-Checkout submits to `kc_place_order`. The database validates quantities and availability, reads current menu prices, calculates the total, and issues an order reference. Request UUIDs prevent duplicates after network retries. Customers cannot read the orders table. Orders are visible in the admin panel and do not send email/SMS notifications. Payment is cash at handoff for takeaway or delivery; delivery zones and any fee are confirmed by the shop. Phone-based submission throttling is basic; stronger bot protection can be added separately.
+Checkout submits to `kc_place_order`. The database validates quantities and availability, reads current menu prices, calculates the total, and issues an order reference. Request UUIDs prevent duplicates after network retries. Customers cannot read the orders table. Orders are visible in the admin panel and do not send email/SMS notifications. Payment is cash at handoff for takeaway or delivery. Delivery has no extra fee. Phone-based submission throttling is basic; stronger bot protection can be added separately.
 
 The admin loads the 500 latest orders and polls every 15 seconds while visible. Times and daily totals use Europe/Paris. Menu updates appear on the storefront's next page load. Photos are stored in the public menu-photos bucket; write access requires admin membership. The technical checkout verification order is explicitly labelled, cancelled and archived outside the admin order list.
