@@ -1,4 +1,5 @@
 alter table public.kc_orders add column if not exists customer_email text not null default '';
+grant select on public.kc_orders to service_role;
 
 create or replace function public.kc_place_order_with_email(p_request_id uuid,p_name text,p_email text,p_phone text,p_address text,p_note text,p_pickup text,p_items jsonb) returns jsonb language plpgsql security definer set search_path='' as $$
 declare it jsonb; dish public.kc_menu%rowtype; snapshot jsonb:='[]'; amount integer:=0; q integer; ref text; previous public.kc_orders%rowtype;

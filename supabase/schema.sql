@@ -15,6 +15,7 @@ create table if not exists public.kc_orders(id uuid primary key default gen_rand
 alter table public.kc_orders enable row level security;
 revoke all on public.kc_orders from anon,authenticated;
 grant select on public.kc_orders to authenticated;
+grant select on public.kc_orders to service_role;
 grant update(status) on public.kc_orders to authenticated;
 create policy orders_admin_read on public.kc_orders for select to authenticated using(public.kc_is_admin() and archived_at is null);
 create policy orders_admin_status on public.kc_orders for update to authenticated using(public.kc_is_admin()) with check(public.kc_is_admin());
