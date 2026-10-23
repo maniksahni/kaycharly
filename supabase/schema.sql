@@ -11,12 +11,12 @@ create policy menu_public on public.kc_menu for select to anon,authenticated usi
 create policy menu_admin on public.kc_menu for all to authenticated using(public.kc_is_admin()) with check(public.kc_is_admin());
 grant select on public.kc_menu to anon,authenticated;
 grant insert,update,delete on public.kc_menu to authenticated;
-create table if not exists public.kc_orders(id uuid primary key default gen_random_uuid(), reference text not null unique, created_at timestamptz not null default now(), customer_name text not null, phone text not null, address text not null default '', note text not null default '', pickup text not null, items jsonb not null, total integer not null, status text not null default 'Nouvelle' check(status in('Nouvelle','En préparation','Prête','Retirée','Annulée')), request_id uuid not null unique);
+create table if not exists public.kc_orders(id uuid primary key default gen_random_uuid(), reference text not null unique, created_at timestamptz not null default now(), customer_name text not null, phone text not null, address text not null default '', note text not null default '', pickup text not null, items jsonb not null, total integer not null, status text not null default 'Nouvelle' check(status in('Nouvelle','En préparation','Prête','Retirée','Annulée')), request_id uuid not null unique, archived_at timestamptz);
 alter table public.kc_orders enable row level security;
 revoke all on public.kc_orders from anon,authenticated;
 grant select on public.kc_orders to authenticated;
 grant update(status) on public.kc_orders to authenticated;
-create policy orders_admin_read on public.kc_orders for select to authenticated using(public.kc_is_admin());
+create policy orders_admin_read on public.kc_orders for select to authenticated using(public.kc_is_admin() and archived_at is null);
 create policy orders_admin_status on public.kc_orders for update to authenticated using(public.kc_is_admin()) with check(public.kc_is_admin());
 create or replace function public.kc_place_order(p_request_id uuid,p_name text,p_phone text,p_address text,p_note text,p_pickup text,p_items jsonb) returns jsonb language plpgsql security definer set search_path='' as $$
 declare it jsonb; dish public.kc_menu%rowtype; snapshot jsonb:='[]'; amount integer:=0; q integer; ref text; previous public.kc_orders%rowtype;
