@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-label="Pot de glace">
+<rect width="800" height="800" fill="#f6efe2"/>
+<rect y="0" width="800" height="36" fill="#c2413b"/><rect y="36" width="800" height="14" fill="#f2b53a"/><rect y="750" width="800" height="14" fill="#f2b53a"/><rect y="764" width="800" height="36" fill="#1b4234"/>
+<circle cx="300" cy="300" r="120" fill="#f2b53a"/><circle cx="500" cy="300" r="120" fill="#c2413b"/><circle cx="400" cy="205" r="120" fill="#fffaf0" stroke="#e4dac6" stroke-width="6"/>
+<path d="M210 350h380l-52 310a24 24 0 0 1-24 20H286a24 24 0 0 1-24-20z" fill="#1b4234"/>
+<path d="M196 330h408a14 14 0 0 1 14 14v18a14 14 0 0 1-14 14H196a14 14 0 0 1-14-14v-18a14 14 0 0 1 14-14z" fill="#2c6a55"/>
+<path d="M238 440h324l-10 60H248z" fill="#f2b53a"/>
+</svg>
