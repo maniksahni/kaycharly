@@ -118,10 +118,10 @@ addEventListener("scroll",updateTop,{passive:true});updateTop();
 let MENU=[];
 let backendReady=false;
 const html=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const FALLBACK_PHOTO={plats:'viande-riz-source',poulet:'poulet-source',sandwich:'burger-source',aperitif:'accras-source',douceurs:'boissons-source'};
-try {const rows=await KC.api('/rest/v1/kc_menu?select=*&order=sort_order.asc');const groups=[['plats','Plats'],['poulet','Poulet-frites'],['sandwich','Sandwichs'],['aperitif','Apéritif'],['douceurs','Douceurs & boissons']];MENU=groups.map(([id,name])=>({id,name,items:rows.filter(r=>r.category===name).map(r=>({img:FALLBACK_PHOTO[id],id:r.id,n:html(r.name),d:html(r.description),p:r.price,photo:r.photo,available:r.available,featured:r.featured}))})).filter(c=>c.items.length);backendReady=true;}catch(e){console.warn('Menu unavailable');}
+const FALLBACK_PHOTO={unite:'viande-riz-source',menus:'racines-source',poulet:'poulet-source',sandwich:'burger-source',grignoter:'accras-source',boissons:'boissons-source'};
+try {const rows=await KC.api('/rest/v1/kc_menu?select=*&order=sort_order.asc');const groups=[['unite','À l’unité'],['menus','Menus plat'],['poulet','Poulet-frites'],['sandwich','Sandwichs'],['grignoter','À grignoter'],['boissons','Boissons & douceurs']];MENU=groups.map(([id,name])=>({id,name,items:rows.filter(r=>r.category===name).map(r=>({img:FALLBACK_PHOTO[id],id:r.id,n:html(r.name),d:html(r.description),p:r.price,photo:r.photo,available:r.available,featured:r.featured}))})).filter(c=>c.items.length);backendReady=true;}catch(e){console.warn('Menu unavailable');}
 const ITEMS={};MENU.forEach(c=>c.items.forEach(i=>ITEMS[i.id]=i));
-const CAT_NOTES={plats:"Commandes de plats avant 10h · livraison entre 10h et 11h30",sandwich:"À emporter uniquement, pas de livraison · midi 11h30–14h tous les jours, soir 18h–21h du jeudi au samedi"};
+const CAT_NOTES={unite:"Commandes de plats avant 10h · livraison entre 10h et 11h30",menus:"+ 1 € si planteur à la place du jus · Commandes de plats avant 10h, livraison entre 10h et 11h30",sandwich:"À emporter uniquement, pas de livraison · midi 11h30–14h tous les jours, soir 18h–21h du jeudi au samedi"};
 const TOWNS=["Champcueil", "Chevannes", "Mondeville", "Ballancourt", "Mennecy", "Ormoy", "Fontenay-le-Vicomte"];
 const hasSandwich=()=>(MENU.find(c=>c.id==="sandwich")?.items||[]).some(i=>cart[i.id]);
 const photoFor=it=>{try{const u=new URL(it.photo||('img/'+it.img+'.webp'),location.href);return ['https:','http:'].includes(u.protocol)?html(u.href):''}catch{return ''}};
