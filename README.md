@@ -2,7 +2,7 @@
 
 Static restaurant storefront hosted on GitHub Pages, with a Supabase database and authenticated administration.
 
-- `index.html`: storefront, live menu, category filters, cart, takeaway and delivery checkout.
+- `index.html`: storefront, live menu, category filters, cart, takeaway and delivery checkout. If the menu cannot load, it asks visitors to call.
 - `admin.html`, `admin.js`, `admin.css`: authenticated order management, search/status/date filters, daily menu, prices, photos, featured dishes and availability.
 - `backend.js`: public Supabase URL and publishable key only. Never add a service-role key or passwords here.
 - `supabase/schema.sql`: database schema, RLS, server-calculated order totals and initial menu seed. Run once in a new project.
