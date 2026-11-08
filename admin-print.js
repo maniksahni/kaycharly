@@ -7,8 +7,9 @@ const ROLLS={29:[306,6],38:[413,12],50:[554,12],54:[590,0],62:[696,12]};
 let cfg={},device=null,epOut=0,epIn=0,pendingIn=null,needBaseline=false;
 try{cfg=JSON.parse(localStorage.getItem(CFG)||'{}')||{}}catch{}
 const saveCfg=()=>{try{localStorage.setItem(CFG,JSON.stringify(cfg))}catch{}};
-const readDone=()=>{try{return new Set(JSON.parse(localStorage.getItem(DONE)||'[]'))}catch{return new Set()}};
-const saveDone=s=>{try{localStorage.setItem(DONE,JSON.stringify([...s].slice(-1000)))}catch{}};
+// Order id to print time. Zero marks orders that existed before the printer was connected.
+const readDone=()=>{try{const v=JSON.parse(localStorage.getItem(DONE)||'{}');return Array.isArray(v)?Object.fromEntries(v.map(id=>[id,0])):v}catch{return {}}};
+const saveDone=d=>{try{localStorage.setItem(DONE,JSON.stringify(Object.fromEntries(Object.entries(d).slice(-1000))))}catch{}};
 const active=()=>cfg.mode==='browser'||(cfg.mode==='usb'&&!!device);
 function show(state,text){const bar=el('printerBar');bar.dataset.state=state;el('printerState').textContent=text;el('printerSetup').hidden=active();el('printerConnected').hidden=!active()}
 function refresh(){if(cfg.mode==='browser')show('on','Imprimante de l’ordinateur activée. Les nouvelles commandes partent à l’impression.');else if(device)show('on','Imprimante connectée. Les nouvelles commandes s’impriment automatiquement.');else show('off',cfg.mode==='usb'?'Imprimante débranchée. Rebranchez-la ou reconnectez-la.':'Connectez votre imprimante pour imprimer les commandes automatiquement.')}
@@ -37,17 +38,20 @@ function viaBrowser(lines){return new Promise(resolve=>{const f=document.createE
 const send=lines=>cfg.mode==='usb'?viaUsb(lines):viaBrowser(lines);
 
 async function attach(d){await d.open();if(!d.configuration)await d.selectConfiguration(1);const a=d.configuration.interfaces.find(i=>i.alternates[0].endpoints.some(e=>e.direction==='out'&&e.type==='bulk'));if(!a)throw Error('Désactivez le mode Editor Lite (voyant vert éteint).');const eps=a.alternates[0].endpoints;await d.claimInterface(a.interfaceNumber);epOut=eps.find(e=>e.direction==='out'&&e.type==='bulk').endpointNumber;epIn=(eps.find(e=>e.direction==='in'&&e.type==='bulk')||{}).endpointNumber;device=d;pendingIn=null}
-async function reconnect(){if(cfg.mode!=='usb'||!navigator.usb)return;const list=await navigator.usb.getDevices(),d=list.find(x=>x.vendorId===cfg.vendorId&&x.productId===cfg.productId);if(d)try{await attach(d)}catch{device=null}refresh();if(device)load()}
+async function reattach(){if(cfg.mode!=='usb'||!navigator.usb)return;device=null;pendingIn=null;const list=await navigator.usb.getDevices(),d=list.find(x=>x.vendorId===cfg.vendorId&&x.productId===cfg.productId);if(d)try{await attach(d)}catch{device=null}}
+async function reconnect(){await reattach();refresh();if(device)load()}
 function keepAwake(){if(active()&&document.visibilityState==='visible')navigator.wakeLock?.request('screen').catch(()=>{})}
 function enabled(){needBaseline=true;refresh();keepAwake();load();sync()}
 async function connectUsb(){if(!navigator.usb){show('err','Cette connexion directe fonctionne avec Chrome ou Edge.');return}try{const d=await navigator.usb.requestDevice({filters:[{vendorId:BROTHER}]});await attach(d);cfg={mode:'usb',vendorId:d.vendorId,productId:d.productId,mm:62};saveCfg();try{checkStatus(await status())}catch(e){show('err',e.message);needBaseline=true;load();return}enabled()}catch(e){if(e.name!=='NotFoundError')show('err','Connexion impossible : '+e.message+' Essayez l’imprimante de l’ordinateur.')}}
 function useBrowser(){cfg={mode:'browser'};saveCfg();enabled()}
-async function disconnect(){try{await device?.close()}catch{}device=null;cfg={};saveCfg();refresh()}
+async function disconnect(){if(!confirm('Changer d’imprimante ? L’impression automatique s’arrêtera jusqu’à la prochaine connexion.'))return;try{await device?.close()}catch{}device=null;cfg={};saveCfg();refresh()}
 
-async function run(){const done=readDone();if(needBaseline){orders.forEach(o=>done.add(o.id));saveDone(done);needBaseline=false;return}const now=Date.now(),todo=orders.filter(o=>o.status==='Nouvelle'&&!done.has(o.id)&&now-new Date(o.created_at)<MAX_AGE).reverse();for(const o of todo){try{await send(ticket(o));done.add(o.id);saveDone(done);refresh()}catch(e){show('err','Impression impossible : '+e.message+' La commande sera réessayée.');return}}}
+const STALE=['NetworkError','InvalidStateError','NotFoundError'];
+async function run(){const done=readDone();if(needBaseline){orders.forEach(o=>{done[o.id]??=0});saveDone(done);needBaseline=false;renderOrders();return}const now=Date.now(),todo=orders.filter(o=>o.status==='Nouvelle'&&!(o.id in done)&&now-new Date(o.created_at)<MAX_AGE).reverse();for(const o of todo){try{await send(ticket(o));done[o.id]=Date.now();saveDone(done);refresh();renderOrders()}catch(e){if(STALE.includes(e.name))await reattach();show('err','Impression impossible : '+e.message+' La commande sera réessayée.');return}}}
 let running=false;
 async function sync(){if(!active()||running)return;running=true;try{if(navigator.locks)await navigator.locks.request('kc-print',{ifAvailable:true},l=>l?run():null);else await run()}finally{running=false}}
-async function printOne(id){const o=orders.find(x=>x.id===id);if(!o)return;if(!active()){show('err','Connectez d’abord une imprimante.');return}try{await send(ticket(o));const done=readDone();done.add(o.id);saveDone(done);refresh()}catch(e){show('err','Impression impossible : '+e.message)}}
+async function printOne(id){const o=orders.find(x=>x.id===id);if(!o)return;if(!active())await reattach();if(!active())await connectUsb();if(!active())return;try{await send(ticket(o));const done=readDone();done[o.id]=Date.now();saveDone(done);refresh();renderOrders()}catch(e){if(STALE.includes(e.name))await reattach();show('err','Impression impossible : '+e.message)}}
+function badge(o,done){const t=done[o.id];if(t)return `<span class="print-ok">Imprimé à ${new Date(t).toLocaleTimeString('fr-FR',{timeZone:'Europe/Paris',hour:'2-digit',minute:'2-digit'})}</span>`;return t===undefined&&o.status==='Nouvelle'&&active()?'<span class="print-wait">Impression en attente</span>':''}
 async function test(){if(!active())return;try{await send(ticket(SAMPLE));refresh()}catch(e){show('err','Test impossible : '+e.message)}}
 function preview(){const box=el('printerPreviewBox');box.replaceChildren(draw(ticket(SAMPLE),ROLLS[cfg.mm||62][0]));el('printerPreview').showModal()}
 
@@ -56,5 +60,5 @@ el('orderList').addEventListener('click',e=>{const id=e.target.dataset.print;if(
 document.addEventListener('visibilitychange',keepAwake);
 if(navigator.usb){navigator.usb.addEventListener('disconnect',e=>{if(e.device===device){device=null;pendingIn=null;refresh()}});navigator.usb.addEventListener('connect',()=>reconnect())}
 refresh();reconnect();keepAwake();
-return{sync,on:active,_ticket:ticket,_raster:raster,_draw:draw};
+return{sync,on:active,done:readDone,badge,_ticket:ticket,_raster:raster,_draw:draw};
 })();
