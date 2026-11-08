@@ -5,6 +5,7 @@ Static restaurant storefront hosted on GitHub Pages, with a Supabase database an
 - `index.html`: storefront, live menu, category filters, cart, takeaway and delivery checkout. If the menu cannot load, it asks visitors to call.
 - `admin.html`, `admin.js`, `admin.css`: authenticated order management, search/status/date filters, daily menu, prices, photos, featured dishes and availability.
 - Menu: the public carte combines the flyer, the shop menu board and earlier menu files. Items in the `Hors carte` category stay in the admin but are not shown on the site.
+- `admin-print.js`: prints each new order while the admin stays open. It needs Chrome or Edge for a direct USB receipt printer; the computer printer option prints silently only when Chrome is started with `--kiosk-printing`.
 - `backend.js`: public Supabase URL and publishable key only. Never add a service-role key or passwords here.
 - `supabase/schema.sql`: database schema, RLS, server-calculated order totals and initial menu seed. Run once in a new project.
 
