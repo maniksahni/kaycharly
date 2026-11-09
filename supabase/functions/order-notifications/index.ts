@@ -48,7 +48,23 @@ async function accessToken() {
   return String(result.access_token);
 }
 
+async function sendWithBrevo(apiKey: string, from: string, to: string, replyTo: string, subject: string, html: string, text: string) {
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ sender: { name: "Kay Charly", email: from }, to: [{ email: to }], replyTo: { email: replyTo }, subject, htmlContent: html, textContent: text }),
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    console.error("Brevo send failed", { status: response.status, details: details.slice(0, 500) });
+    return false;
+  }
+  return true;
+}
+
 async function sendMail(token: string, from: string, to: string, replyTo: string, subject: string, html: string, text: string) {
+  const brevoKey = Deno.env.get("BREVO_API_KEY");
+  if (brevoKey) return sendWithBrevo(brevoKey, from, to, replyTo, subject, html, text);
   const boundary = `kc_${crypto.randomUUID().replaceAll("-", "")}`;
   const message = [
     `From: Kay Charly <${safeHeader(from)}>`,
@@ -115,7 +131,7 @@ Deno.serve(async request => {
   if (!order || !order.customer_email) return json({ error: "Order or customer email not found" }, 404);
 
   try {
-    const token = await accessToken();
+    const token = Deno.env.get("BREVO_API_KEY") ? "" : await accessToken();
     const customer = customerEmail(order);
     const ownerNotice = ownerEmail(order);
     const [customerSent, ownerSent] = await Promise.all([

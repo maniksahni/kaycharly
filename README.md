@@ -26,6 +26,8 @@ The admin loads the 500 latest orders and polls every 15 seconds while visible. 
 
 ## Temporary order email notifications
 
+When the `BREVO_API_KEY` secret is set, the function sends through Brevo from the verified sender address instead of the Gmail API.
+
 Checkout asks each customer for the email address where they want their receipt. That address is stored with that order and used dynamically; no permanent customer email needs to be configured. The `order-notifications` Supabase Edge Function sends two branded, responsive French emails through the Gmail API after the order is saved: a receipt to the email entered for that order, and an owner alert with the customer's contact details, delivery address/map link, fulfillment details, itemized order, total and note. Both are sent from `kaycharly37@gmail.com`; owner alerts go to `kaycharly91750@gmail.com`. Both include a plain-text version. The browser only receives send status; Google OAuth and Supabase service credentials stay in server-side secrets.
 
 For a small temporary pilot, create a Google Cloud OAuth client, enable the Gmail API, and authorize `kaycharly37@gmail.com` for the `gmail.send` scope with offline access. Set these Supabase Edge Function secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, and `SITE_ORIGIN` (`https://maniksahni.github.io`). `OWNER_EMAIL` and `GOOGLE_SENDER_EMAIL` default to the addresses above and may be overridden as server secrets. Supabase supplies `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the deployed function. The sender address must match the Google account that granted OAuth access. Apply `supabase/migrations/20261023110000_customer_order_email.sql`, then deploy `order-notifications`.
