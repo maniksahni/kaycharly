@@ -33,3 +33,4 @@
 .wz-small{font-size:15px;color:#3d4a43;margin:4px 0 0;text-align:center}.link{background:none;border:0;color:#1c6b43;text-decoration:underline;font-size:15px;min-height:auto;padding:0;cursor:pointer}
 .wz-foot{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:22px;padding-top:16px;border-top:1px solid #eee}
 @media (max-width:520px){.wz-card{font-size:19px;padding:14px}.wz-card h2{font-size:25px}.wz-main{font-size:20px;padding:16px 20px}}
+.wz-steps{margin:0 auto 6px;padding-left:26px;text-align:left;max-width:600px;font-size:18px;display:grid;gap:8px}.wz-link{display:inline-block;text-decoration:none;margin:4px 0}

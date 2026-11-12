@@ -500,7 +500,7 @@ window.KCP = (() => {
     const S = [];
     S.push(isChromium()
       ? { ok: true, label: 'Navigateur compatible', text: 'Google Chrome / Microsoft Edge' }
-      : { ok: false, label: 'Navigateur compatible', text: 'Ouvrez ce site avec Google Chrome.' });
+      : { ok: false, label: 'Navigateur compatible', text: 'Ce navigateur ne sait pas parler à l’imprimante. Installez et ouvrez ce site avec Google Chrome.', action: ['⬇️ Télécharger Google Chrome', 'chrome'] });
     S.push(live
       ? { ok: true, label: 'Commandes reçues en direct', text: 'Connecté · nouvelle vérification toutes les 15 secondes' }
       : { ok: false, label: 'Commandes reçues en direct', text: 'Pas de connexion récente : vérifiez internet.', action: ['Revérifier', 'recheck'] });
@@ -575,7 +575,7 @@ window.KCP = (() => {
   }
 
   // ---------- remote follow-up: every computer's printer, seen from any admin ----------
-  const EVENT_LABELS = { wizard_open: 'Assistant ouvert', help_requested: '🆘 AIDE DEMANDÉE', try_other: 'Ticket pas sorti → autre méthode', connect_ble_click: 'Clic sur « sans fil »', connect_ble_ok: 'Connectée sans fil (Bluetooth)', connect_ble_cancel: 'Liste Bluetooth sans fil fermée sans choisir', connect_ble_fail: 'Échec Bluetooth sans fil', ladder_reset: 'Recommencer les méthodes', remote_test: 'Ticket test demandé à distance', remote_test_done: 'Ticket test à distance imprimé ✓', remote_test_fail: 'Ticket test à distance impossible', connect_usb_click: 'Clic sur « Connecter » (USB)', connect_usb_ok: 'Connectée en USB', connect_usb_cancel: 'Liste USB fermée sans choisir', connect_usb_fail: 'Échec de connexion USB', connect_bt_click: 'Clic sur « Bluetooth »', connect_bt_ok: 'Connectée en Bluetooth', connect_bt_cancel: 'Liste Bluetooth fermée sans choisir', connect_bt_fail: 'Échec Bluetooth', connect_driver: 'Pilote de l’ordinateur choisi', test_print: 'Ticket test envoyé', test_yes: 'Ticket test confirmé ✓', test_no: 'Ticket test PAS sorti', test_fail: 'Ticket test impossible', print_ok: 'Commande imprimée', print_fail: 'Échec d’impression', disconnect: 'Impression arrêtée', page_open: 'Admin ouvert' };
+  const EVENT_LABELS = { launcher_download: 'Lanceur téléchargé', launcher_open: 'Lanceur ouvert (fenêtre caisse)', wizard_open: 'Assistant ouvert', help_requested: '🆘 AIDE DEMANDÉE', try_other: 'Ticket pas sorti → autre méthode', connect_ble_click: 'Clic sur « sans fil »', connect_ble_ok: 'Connectée sans fil (Bluetooth)', connect_ble_cancel: 'Liste Bluetooth sans fil fermée sans choisir', connect_ble_fail: 'Échec Bluetooth sans fil', ladder_reset: 'Recommencer les méthodes', remote_test: 'Ticket test demandé à distance', remote_test_done: 'Ticket test à distance imprimé ✓', remote_test_fail: 'Ticket test à distance impossible', connect_usb_click: 'Clic sur « Connecter » (USB)', connect_usb_ok: 'Connectée en USB', connect_usb_cancel: 'Liste USB fermée sans choisir', connect_usb_fail: 'Échec de connexion USB', connect_bt_click: 'Clic sur « Bluetooth »', connect_bt_ok: 'Connectée en Bluetooth', connect_bt_cancel: 'Liste Bluetooth fermée sans choisir', connect_bt_fail: 'Échec Bluetooth', connect_driver: 'Pilote de l’ordinateur choisi', test_print: 'Ticket test envoyé', test_yes: 'Ticket test confirmé ✓', test_no: 'Ticket test PAS sorti', test_fail: 'Ticket test impossible', print_ok: 'Commande imprimée', print_fail: 'Échec d’impression', disconnect: 'Impression arrêtée', page_open: 'Admin ouvert' };
   async function loadRemote() {
     if (!loggedIn() || $('printer')?.hidden) return;
     try {
@@ -717,6 +717,56 @@ window.KCP = (() => {
   }
   function preview() { $('printerPreviewBox').replaceChildren(draw(testTicket())); $('printerPreview').showModal(); }
 
+  // ---------- one-click help for the hard parts ----------
+  // Opens the right system settings page directly (Chrome asks « Ouvrir Paramètres ? » once).
+  const SETTINGS = isWindows
+    ? { bluetooth: 'ms-settings:bluetooth', printers: 'ms-settings:printers' }
+    : isMac ? { bluetooth: 'x-apple.systempreferences:com.apple.BluetoothSettings', printers: 'x-apple.systempreferences:com.apple.Print-Scan-Settings.extension' } : {};
+  const settingsLink = (what, label) => SETTINGS[what] ? `<a class="wz-alt wz-link" href="${SETTINGS[what]}" data-settings="${what}">⚙️ ${h(label)}</a>` : '';
+
+  // Windows launcher for the driver method: opens the admin in its own Chrome window with silent
+  // printing (separate profile, so Chrome does not need to be closed first), puts a copy on the desktop
+  // and in the Startup folder so the till window opens by itself when the computer starts.
+  function launcherText() {
+    const url = new URL('admin.html', document.baseURI).href + '#caisse';
+    return [
+      '@echo off',
+      'title Kay Charly Caisse',
+      'rem Ouvre l\'admin Kay Charly avec impression automatique sans fenetre.',
+      `set "URL=${url}"`,
+      'set "PROFILE=%LOCALAPPDATA%\\KayCharlyCaisse"',
+      'set "B=%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"',
+      'if not exist "%B%" set "B=%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe"',
+      'if not exist "%B%" set "B=%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe"',
+      'if not exist "%B%" set "B=%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe"',
+      'if not exist "%B%" set "B=%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe"',
+      'if not exist "%B%" goto nochrome',
+      'set "STARTUP=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"',
+      'copy /y "%~f0" "%STARTUP%\\Kay Charly Caisse.cmd" >nul 2>&1',
+      'copy /y "%~f0" "%USERPROFILE%\\Desktop\\Kay Charly Caisse.cmd" >nul 2>&1',
+      'start "" "%B%" --user-data-dir="%PROFILE%" --kiosk-printing --no-first-run --no-default-browser-check --app="%URL%"',
+      'exit /b 0',
+      ':nochrome',
+      'echo Google Chrome est introuvable. Installez-le depuis https://www.google.com/chrome puis recommencez.',
+      'pause',
+      '',
+    ].join('\r\n');
+  }
+  // A real link (admin.js defines its own global open(), so window.open is not the browser's here).
+  function openChrome() {
+    const a = document.createElement('a');
+    a.href = 'https://www.google.com/chrome/'; a.target = '_blank'; a.rel = 'noopener';
+    document.body.append(a); a.click(); a.remove();
+  }
+  function downloadLauncher() {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([launcherText()], { type: 'application/octet-stream' }));
+    a.download = 'Kay Charly Caisse.cmd';
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    logEvent('launcher_download');
+  }
+
   // ---------- full-screen assistant: one step per screen, big text, drawings, read aloud ----------
   // Screens 0–2 are physical (paper, cables) and move on with "C’est fait". From screen 3 on, the screen
   // shown follows the real state: not connected → connect, no confirmed ticket → test, window still
@@ -733,6 +783,8 @@ window.KCP = (() => {
   const WZ = { open: false, i: 0, voice: false, helpSent: false, lastSpoken: '' };
 
   function wizardScreen() {
+    // Wrong browser: say it first, nothing else can work until Chrome is used.
+    if (!isChromium()) return { id: 'browser', title: 'Il faut Google Chrome', text: 'Ce navigateur ne sait pas parler à l’imprimante. Installez Google Chrome (gratuit), puis ouvrez ce site avec Chrome.' };
     if (WZ.i < 3) return [
       { id: 'hello', title: 'Connectons l’imprimante', text: 'Ça prend deux minutes. Suivez les dessins, une étape à la fois. Vous pouvez appuyer sur « Lire à voix haute » à tout moment.', next: 'Commencer' },
       { id: 'paper', title: 'Mettre le papier', text: 'Ouvrez le capot de l’imprimante. Posez le rouleau pour que le papier sorte par-dessus, vers vous. Laissez dépasser un peu de papier, puis refermez le capot en appuyant fort jusqu’au clic.', next: 'C’est fait' },
@@ -743,10 +795,13 @@ window.KCP = (() => {
       return { id: 'connect', title: 'Connecter l’imprimante au site', text: m.hint, method: m };
     }
     if (!cfg.confirmedAt) return { id: 'test', title: 'Un ticket est-il sorti de l’imprimante ?', text: 'Regardez l’imprimante : un ticket « IMPRIMANTE CONNECTÉE » doit sortir. S’il n’est pas encore sorti, attendez 10 secondes.' };
-    if (cfg.mode === 'browser' && cfg.silent !== true) return { id: 'window', title: 'Dernière petite chose', text: 'Une fenêtre d’impression s’ouvre encore. Il faut ouvrir le site avec le raccourci « Kay Charly Caisse ». La personne qui s’occupe du site peut le faire en une minute : cliquez sur « J’ai besoin d’aide ».' };
+    if (cfg.mode === 'browser' && cfg.silent !== true) return { id: 'window', title: 'Dernière petite chose', text: isWindows
+      ? 'Pour que les tickets sortent tout seuls (sans fenêtre), téléchargez le lanceur « Kay Charly Caisse » et ouvrez-le. Il ouvre une fenêtre Kay Charly spéciale, se met sur le bureau et s’ouvrira tout seul quand l’ordinateur démarre.'
+      : 'Une fenêtre d’impression s’ouvre encore. Il faut ouvrir le site avec impression automatique : cliquez sur « J’ai besoin d’aide », la personne qui s’occupe du site le règle en une minute.' };
     return { id: 'done', title: 'Bravo, c’est prêt !', text: 'Laissez cette page ouverte. Chaque nouvelle commande s’imprimera toute seule, et un son vous préviendra.', next: 'Terminer' };
   }
-  const SCREEN_ORDER = ['hello', 'paper', 'power', 'connect', 'test', 'window', 'done'];
+  const SCREEN_ORDER = ['hello', 'paper', 'power', 'browser', 'connect', 'test', 'window', 'done'];
+  ART.browser = ART.connect;
 
   function speak(text) {
     try {
@@ -763,10 +818,15 @@ window.KCP = (() => {
     const box = $('wizard');
     if (!box || !WZ.open) return;
     const sc = wizardScreen(), pos = SCREEN_ORDER.indexOf(sc.id), total = cfg.mode === 'browser' ? 7 : 6;
-    const shown = Math.min(pos, total - 1) + 1;
+    const shown = Math.min(pos > 3 ? pos - 1 : pos, total - 1) + 1;
     let act = '';
     if (sc.id === 'connect') {
-      act = `<button type="button" class="wz-main" data-wz="connect">${h(sc.method.button)}</button>`
+      const pre = sc.method.id === 'serial'
+        ? `<ol class="wz-steps"><li>Imprimante allumée, près de l’ordinateur.</li><li>Cliquez ici ${settingsLink('bluetooth', 'Ouvrir le Bluetooth de l’ordinateur') || '(Paramètres → Bluetooth)'}</li><li>« Ajouter un appareil » → « Bluetooth » → cliquez sur l’imprimante. Code demandé : <b>0000</b> ou <b>1234</b>.</li><li>Revenez ici et cliquez sur le bouton vert.</li></ol>`
+        : sc.method.id === 'browser'
+          ? `<ol class="wz-steps"><li>Installez le programme (pilote) fourni avec l’imprimante.</li><li>${settingsLink('printers', 'Ouvrir les imprimantes de l’ordinateur') || 'Paramètres → Imprimantes'} → cliquez sur l’imprimante → « Définir par défaut ».</li><li>Revenez ici et cliquez sur le bouton vert.</li></ol>`
+          : '';
+      act = pre + `<button type="button" class="wz-main" data-wz="connect">${h(sc.method.button)}</button>`
         + (connectHelp ? `<p class="wz-warn">${h(connectHelp)}</p>` : '')
         + (failed().length ? `<p class="wz-small">Déjà essayé : ${h(failed().map((f) => MODE_NAME[f]).join(', '))}. <button type="button" class="link" data-wz="restart">Recommencer depuis le début</button></p>` : '');
     } else if (sc.id === 'test') {
@@ -774,8 +834,14 @@ window.KCP = (() => {
         ? `<div class="wz-row"><button type="button" class="wz-main" data-wz="yes">✓ Oui, il est sorti</button><button type="button" class="wz-alt" data-wz="no">✕ Non, rien n’est sorti</button></div>`
         : `<button type="button" class="wz-main" data-wz="test">Imprimer un ticket test</button>`;
       if (lastError) act += `<p class="wz-warn">${h(lastError)}</p><div class="wz-row"><button type="button" class="wz-alt" data-wz="test">Réessayer le ticket</button><button type="button" class="wz-alt" data-wz="other">Essayer une autre méthode</button></div>`;
+    } else if (sc.id === 'browser') {
+      act = `<button type="button" class="wz-main" data-wz="chrome">⬇️ Télécharger Google Chrome</button>`;
     } else if (sc.id === 'window') {
-      act = `<button type="button" class="wz-main" data-wz="test">J’ai ouvert avec le raccourci : refaire le test</button>`;
+      act = isWindows
+        ? `<button type="button" class="wz-main" data-wz="launcher">⬇️ Télécharger le lanceur</button>`
+          + `<ol class="wz-steps"><li>Ouvrez le fichier téléchargé « Kay Charly Caisse » (en haut ou en bas de Chrome).</li><li>Si Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires » puis « Exécuter quand même ».</li><li>Une nouvelle fenêtre Kay Charly s’ouvre : connectez-vous. L’imprimante se règle toute seule et un ticket sort.</li></ol>`
+          + `<button type="button" class="wz-alt" data-wz="test">J’ai déjà ouvert avec le raccourci : refaire le test</button>`
+        : `<button type="button" class="wz-main" data-wz="test">Refaire le test</button>`;
     } else act = `<button type="button" class="wz-main" data-wz="next">${h(sc.next)}</button>`;
     box.innerHTML = `<div class="wz-card" role="dialog" aria-modal="true" aria-labelledby="wzTitle">
       <div class="wz-top"><span>Étape ${shown} sur ${total}</span><div class="wz-dots">${Array.from({ length: total }, (_, k) => `<i class="${k < shown ? 'on' : ''}"></i>`).join('')}</div><button type="button" class="wz-x" data-wz="close" aria-label="Fermer">✕</button></div>
@@ -823,12 +889,15 @@ window.KCP = (() => {
     else if (a === 'yes') answer(true);
     else if (a === 'no') answer(false);
     else if (a === 'other') await tryOther();
+    else if (a === 'launcher') downloadLauncher();
+    else if (a === 'chrome') openChrome();
     wizardRender();
   }
 
   function init() {
     const actions = {
       connect, recheck, test,
+      chrome: () => openChrome(),
       reconnectBle: async () => { try { if (bleDev) { await openBle(bleDev); paper = await readPaper(); render(); } else await connectBle(); } catch { await connectBle(); } },
       showSteps: () => $('stepsTitle').scrollIntoView({ behavior: 'smooth' }),
       toggleSound: () => $('printerSound').click(),
@@ -872,6 +941,7 @@ window.KCP = (() => {
     if (opened) return; opened = true;
     logEvent('page_open', `${cfg.name} · ${navigator.userAgent.slice(0, 100)}`); report(true);
     let closedBefore = false; try { closedBefore = !!sessionStorage.getItem('kc-wz-closed'); } catch {}
+    if (location.hash === '#caisse' && !cfg.mode) { logEvent('launcher_open'); useDriver().then(openWizard); return; }   // launcher window
     if (location.hash === '#imprimante' || (!cfg.mode && !closedBefore)) openWizard();
   }
 
