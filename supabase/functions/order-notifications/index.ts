@@ -1,3 +1,4 @@
+import { receiptPdf } from "./receipt.ts";
 import { customerEmail, ownerEmail, type MailOrder } from "./email-templates.ts";
 
 const allowedOrigin = Deno.env.get("SITE_ORIGIN") || "https://maniksahni.github.io";
@@ -48,11 +49,13 @@ async function accessToken() {
   return String(result.access_token);
 }
 
-async function sendWithBrevo(apiKey: string, from: string, to: string, replyTo: string, subject: string, html: string, text: string) {
+type Attachment = { name: string; content: string };
+
+async function sendWithBrevo(apiKey: string, from: string, to: string, replyTo: string, subject: string, html: string, text: string, attachment?: Attachment) {
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: { "api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ sender: { name: "Kay Charly", email: from }, to: [{ email: to }], replyTo: { email: replyTo }, subject, htmlContent: html, textContent: text }),
+    body: JSON.stringify({ sender: { name: "Kay Charly", email: from }, to: [{ email: to }], replyTo: { email: replyTo }, subject, htmlContent: html, textContent: text, ...(attachment ? { attachment: [attachment] } : {}) }),
   });
   if (!response.ok) {
     const details = await response.text();
@@ -62,9 +65,9 @@ async function sendWithBrevo(apiKey: string, from: string, to: string, replyTo: 
   return true;
 }
 
-async function sendMail(token: string, from: string, to: string, replyTo: string, subject: string, html: string, text: string) {
+async function sendMail(token: string, from: string, to: string, replyTo: string, subject: string, html: string, text: string, attachment?: Attachment) {
   const brevoKey = Deno.env.get("BREVO_API_KEY");
-  if (brevoKey) return sendWithBrevo(brevoKey, from, to, replyTo, subject, html, text);
+  if (brevoKey) return sendWithBrevo(brevoKey, from, to, replyTo, subject, html, text, attachment);
   const boundary = `kc_${crypto.randomUUID().replaceAll("-", "")}`;
   const message = [
     `From: Kay Charly <${safeHeader(from)}>`,
@@ -136,7 +139,7 @@ Deno.serve(async request => {
     const ownerNotice = ownerEmail(order);
     const [customerSent, ownerSent] = await Promise.all([
       sendMail(token, from, order.customer_email, owner, customer.subject, customer.html, customer.text),
-      sendMail(token, from, owner, order.customer_email, ownerNotice.subject, ownerNotice.html, ownerNotice.text),
+      sendMail(token, from, owner, order.customer_email, ownerNotice.subject, ownerNotice.html, ownerNotice.text, { name: `Recu-${order.reference}.pdf`, content: receiptPdf(order) }),
     ]);
     if (!customerSent || !ownerSent) {
       console.error("Order email delivery incomplete", { reference, customer_sent: customerSent, owner_sent: ownerSent });
