@@ -1,4 +1,4 @@
-import { receiptPdf } from "./receipt.ts";
+import { receiptHtml, receiptPdf } from "./receipt.ts";
 import { customerEmail, ownerEmail, type MailOrder } from "./email-templates.ts";
 
 const allowedOrigin = Deno.env.get("SITE_ORIGIN") || "https://maniksahni.github.io";
@@ -50,6 +50,10 @@ async function accessToken() {
 }
 
 type Attachment = { name: string; content: string };
+
+function withReceipt(html: string, block: string) {
+  return /<body[^>]*>/i.test(html) ? html.replace(/(<body[^>]*>)/i, "$1" + block) : block + html;
+}
 
 async function sendWithBrevo(apiKey: string, from: string, to: string, replyTo: string, subject: string, html: string, text: string, attachment?: Attachment) {
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
@@ -139,7 +143,7 @@ Deno.serve(async request => {
     const ownerNotice = ownerEmail(order);
     const [customerSent, ownerSent] = await Promise.all([
       sendMail(token, from, order.customer_email, owner, customer.subject, customer.html, customer.text),
-      sendMail(token, from, owner, order.customer_email, ownerNotice.subject, ownerNotice.html, ownerNotice.text, { name: `Recu-${order.reference}.pdf`, content: receiptPdf(order) }),
+      sendMail(token, from, owner, order.customer_email, ownerNotice.subject, withReceipt(ownerNotice.html, receiptHtml(order)), ownerNotice.text, { name: `Recu-${order.reference}.pdf`, content: receiptPdf(order) }),
     ]);
     if (!customerSent || !ownerSent) {
       console.error("Order email delivery incomplete", { reference, customer_sent: customerSent, owner_sent: ownerSent });
