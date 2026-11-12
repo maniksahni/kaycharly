@@ -2,11 +2,11 @@
 <div class="panel printer-panel"><span class="eyebrow">IMPRESSION AUTOMATIQUE DES COMMANDES</span><h2>Imprimante</h2>
 <p>Quand cette page est ouverte, chaque nouvelle commande s’imprime toute seule (ticket coupé automatiquement) et un son retentit. Le site vérifie chaque étape en direct et coche ✓ quand elle est faite.</p>
 <p id="printerNext" class="next-step" data-state="off"></p>
-<div class="connect-box"><button type="button" id="printerConnect" class="big">🖨️ Connecter l’imprimante</button><small>Une liste s’ouvre en haut de l’écran : cliquez sur le nom de l’imprimante, puis sur « Connexion ».</small></div>
+<div class="connect-box" id="connectBox"><button type="button" id="printerConnect" class="big">🖨️ Connecter l’imprimante</button><small id="printerConnectHint"></small><small>Si ça ne marche pas, pas de souci : le bouton passe tout seul à la méthode suivante. Cliquez-le à nouveau jusqu’à ce qu’un ticket sorte.</small><button type="button" class="secondary small" id="printerRestart" hidden>↺ Recommencer depuis la première méthode</button></div>
 <div id="testAsk" class="test-ask" hidden><b>Un ticket « IMPRIMANTE CONNECTÉE » est-il sorti de l’imprimante ?</b><div><button type="button" id="testYes">✓ Oui, il est sorti</button><button type="button" class="secondary" id="testNo">✕ Non, rien n’est sorti</button></div></div>
 <ul id="printerChecks" class="checks"></ul>
 <p class="muted">Connexion utilisée : <b id="printerMode">Aucune</b></p>
-<div class="printer-actions"><button type="button" class="secondary" id="printerBt">Connecter en Bluetooth</button><button type="button" class="secondary" id="printerDriver">Utiliser le pilote de l’ordinateur</button></div>
+<details class="other-ways"><summary>Choisir une méthode précise</summary><div class="printer-actions"><button type="button" class="secondary" id="printerBle">📶 Bluetooth sans fil</button><button type="button" class="secondary" id="printerBt">📶 Bluetooth appairé (COM)</button><button type="button" class="secondary" id="printerDriver">🖥️ Pilote de l’ordinateur</button></div></details>
 <div class="printer-actions"><button type="button" class="secondary" id="printerTest">Imprimer un ticket test</button><button type="button" class="secondary" id="printerRecheck">Revérifier</button><button type="button" class="secondary" id="printerShow">Voir le ticket</button><button type="button" class="secondary" id="printerSound">🔔 Son : activé</button><button type="button" class="secondary danger" id="printerOff" hidden>Arrêter l’impression automatique</button></div>
 <label class="device-name">Nom de cet ordinateur (pour le suivi)<input id="deviceName" maxlength="60" placeholder="Ordinateur du restaurant"></label>
 </div>
@@ -15,8 +15,8 @@
 <li><b>Mettre le papier.</b> Ouvrez le capot de l’imprimante. Posez le rouleau de 80 mm pour que le papier sorte par-dessus, vers vous (côté brillant vers l’extérieur). Laissez dépasser un peu de papier et refermez le capot en appuyant fort jusqu’au « clic ».</li>
 <li><b>Brancher et allumer.</b> Câble d’alimentation dans la prise, câble USB dans l’ordinateur. Appuyez sur l’interrupteur : le voyant s’allume et l’imprimante fait un bip.</li>
 <li><b>Ouvrir ce site avec Google Chrome</b>, se connecter, puis ouvrir l’onglet « 🖨️ Imprimante ».</li>
-<li><b>Cliquer sur « 🖨️ Connecter l’imprimante ».</b> Une liste s’ouvre en haut : cliquez sur le nom de l’imprimante (souvent « Printer », « POS-80 » ou « USB Printer »), puis sur « Connexion ». Un ticket sort tout seul : répondez « Oui, il est sorti ». C’est fini !</li>
-<li><b>Si l’imprimante n’est pas dans la liste, ou si un message dit que l’ordinateur la garde :</b> passez par le Bluetooth. Démarrer → Paramètres → Bluetooth et appareils → Ajouter un appareil → Bluetooth → cliquez sur l’imprimante (si un code est demandé : 0000 ou 1234). Revenez ici, cliquez sur « Connecter en Bluetooth », choisissez la ligne de l’imprimante (avec « COM »), puis « Connexion ».</li>
+<li><b>Cliquer sur le gros bouton.</b> Une liste s’ouvre en haut : cliquez sur le nom de l’imprimante, puis sur « Connexion » (ou « Associer »). Un ticket sort tout seul : répondez « Oui, il est sorti ». C’est fini ! Si l’imprimante n’est pas dans la liste ou si un message rouge apparaît, recliquez sur le gros bouton : il essaie automatiquement la méthode suivante (câble USB → sans fil → Bluetooth appairé → pilote).</li>
+<li><b>Pour la méthode « Bluetooth appairé » :</b> il faut d’abord appairer l’imprimante. Démarrer → Paramètres → Bluetooth et appareils → Ajouter un appareil → Bluetooth → cliquez sur l’imprimante (si un code est demandé : 0000 ou 1234). Revenez ici, cliquez sur « Connecter en Bluetooth », choisissez la ligne de l’imprimante (avec « COM »), puis « Connexion ».</li>
 <li><b>Dernier recours : le pilote de l’ordinateur.</b> Installez le pilote fourni avec l’imprimante, puis Paramètres → Bluetooth et appareils → Imprimantes et scanners → l’imprimante → « Définir par défaut ». Créez le raccourci « Kay Charly Caisse » (clic droit sur le bureau → Nouveau → Raccourci) avec :<code id="shortcutCmd">"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk-printing https://maniksahni.github.io/kaycharly/admin.html</code><button type="button" class="secondary small" id="copyCmd">Copier</button> Fermez Chrome complètement, ouvrez l’admin avec ce raccourci, puis cliquez sur « Utiliser le pilote de l’ordinateur ». Si Windows dit que le fichier est introuvable, remplacez <i>Program Files</i> par <i>Program Files (x86)</i>.</li>
 <li><b>Laisser tourner.</b> Gardez cette page ouverte devant les autres fenêtres, l’ordinateur branché, et réglez Paramètres → Système → Alimentation → Écran et veille sur « Jamais ». Gardez un rouleau de 80 mm de rechange.</li>
 </ol>
@@ -24,8 +24,8 @@
 <li><b>Mettre le papier</b> (rouleau 80 mm, papier qui sort par-dessus vers vous), refermer le capot jusqu’au « clic ».</li>
 <li><b>Brancher et allumer</b> : alimentation + câble USB dans le Mac.</li>
 <li><b>Ouvrir ce site avec Google Chrome</b>, se connecter, onglet « 🖨️ Imprimante ».</li>
-<li><b>Cliquer sur « 🖨️ Connecter l’imprimante »</b>, choisir l’imprimante dans la liste, « Connexion ». Un ticket sort : répondez « Oui ».</li>
-<li><b>Sinon, en Bluetooth</b> : Réglages Système → Bluetooth → se connecter à l’imprimante, puis ici « Connecter en Bluetooth ».</li>
+<li><b>Cliquer sur le gros bouton</b>, choisir l’imprimante dans la liste, « Connexion » (ou « Associer »). Un ticket sort : répondez « Oui ». Si ça ne marche pas, recliquez : le bouton essaie tout seul la méthode suivante (USB → sans fil → Bluetooth appairé → pilote).</li>
+<li><b>Pour « Bluetooth appairé »</b> : Réglages Système → Bluetooth → se connecter à l’imprimante d’abord.</li>
 <li><b>Laisser tourner</b> : page ouverte au premier plan, Mac branché, veille désactivée.</li>
 </ol>
 <details class="trouble"><summary>Un problème ? Les solutions</summary><ul>
@@ -36,5 +36,5 @@
 <li><b>Une fenêtre d’impression s’ouvre à chaque commande :</b> vous utilisez le pilote sans le raccourci « Kay Charly Caisse » (étape 6).</li>
 </ul></details>
 </div>
-<div class="panel"><span class="eyebrow">SUIVI À DISTANCE</span><h2>État de l’imprimante sur chaque ordinateur</h2><p class="muted">Visible depuis n’importe quel ordinateur connecté à l’admin : on voit si l’imprimante du restaurant est prête, ou à quelle étape la mise en place bloque.</p><ul id="remoteList" class="checks"></ul><h3>Derniers événements</h3><ul id="remoteEvents" class="events"></ul></div>
+<div class="panel"><span class="eyebrow">SUIVI À DISTANCE</span><h2>État de l’imprimante sur chaque ordinateur</h2><p class="muted">Visible depuis n’importe quel ordinateur connecté à l’admin : on voit si l’imprimante du restaurant est prête, ou à quelle étape la mise en place bloque.</p><ul id="remoteList" class="checks"></ul><p id="remoteNote" class="muted" role="status"></p><h3>Derniers événements</h3><ul id="remoteEvents" class="events"></ul></div>
 <dialog id="printerPreview" class="printer-preview"><div id="printerPreviewBox"></div><button id="printerClose" type="button">Fermer</button></dialog></section></main></div><script src="backend.js"></script><script src="admin-receipt.js"></script><script src="admin.js"></script><script src="admin-print.js"></script></body></html>

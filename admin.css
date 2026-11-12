@@ -18,3 +18,4 @@
 .device-name{display:grid;gap:6px;margin-top:16px;max-width:360px;font-size:13px}
 .trouble{margin-top:14px}.trouble summary{cursor:pointer;font-weight:700}.trouble li{margin:6px 0}
 .events{list-style:none;padding:0;margin:8px 0 0;font-size:13px;display:grid;gap:4px}.events time{color:#65716a}.events small{color:#65716a}.checks small.err{color:#a82c22}
+.other-ways{margin-top:12px}.other-ways summary{cursor:pointer;font-size:13px;color:#3d4a43}.connect-box small{max-width:620px}
