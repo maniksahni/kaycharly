@@ -47,7 +47,8 @@ window.KCP = (() => {
   let paper = null;            // { ok, unknown?, low?, text } from the last ESC/POS status read
   let lastError = '';
   let connectHelp = '';        // what to do after a failed connection attempt
-  let needBaseline = !Object.keys(readDone()).length;
+  // Orders already there when the printer is connected are not printed; this snapshot is taken once per connection.
+  let needBaseline = !!cfg.mode && !cfg.baselined;
   let wakeLock = null;
 
   const linked = () => (cfg.mode === 'usb' && !!usbDev) || (cfg.mode === 'serial' && !!port) || (cfg.mode === 'ble' && !!bleChar);
@@ -195,11 +196,18 @@ window.KCP = (() => {
   async function writeBytes(data) {
     if (cfg.mode === 'usb') { for (let i = 0; i < data.length; i += 4096) await usbDev.transferOut(epOut, data.slice(i, i + 4096)); return; }
     if (cfg.mode === 'ble') {
-      const fast = !!bleChar.properties.writeWithoutResponse && bleChar.writeValueWithoutResponse;
-      for (let i = 0; i < data.length; i += 180) {
-        const chunk = data.slice(i, i + 180);
-        if (fast) { await bleChar.writeValueWithoutResponse(chunk); if ((i / 180) % 20 === 19) await sleep(20); }
-        else await bleChar.writeValue(chunk);
+      // Most printers take 180-byte packets; some only 20: drop to 20 once if a bigger packet is refused.
+      // No timers here (a background tab slows timers down): every 10th packet waits for the printer's
+      // acknowledgement instead, which keeps its buffer from overflowing.
+      const fast = !!bleChar.properties.writeWithoutResponse && !!bleChar.writeValueWithoutResponse;
+      const acked = !!bleChar.properties.write;
+      let size = cfg.bleChunk || 180, n = 0;
+      for (let i = 0; i < data.length;) {
+        const chunk = data.slice(i, i + size);
+        const withAck = !fast || (acked && n % 10 === 9);
+        try { await (withAck ? bleChar.writeValue(chunk) : bleChar.writeValueWithoutResponse(chunk)); }
+        catch (e) { if (size > 20) { size = 20; cfg.bleChunk = 20; saveCfg(); continue; } throw e; }
+        i += chunk.length; n++;
       }
       return;
     }
@@ -417,6 +425,7 @@ window.KCP = (() => {
   function restartLadder() { cfg.failed = []; connectHelp = ''; saveCfg(); render(); logEvent('ladder_reset'); }
 
   async function afterConnect() {
+    needBaseline = true; cfg.baselined = false; saveCfg();
     if (linked()) paper = await readPaper();
     keepAwake(); render(); report(true);
     await sync();
@@ -452,7 +461,9 @@ window.KCP = (() => {
   async function send(lines) {
     if (cfg.mode === 'browser') return viaDriver(lines);
     if (!linked()) await reconnect();
-    if (!linked()) throw Error('Imprimante déconnectée : rebranchez-la, allumez-la, puis cliquez sur « Revérifier ».');
+    if (!linked()) throw Error(cfg.mode === 'ble'
+      ? 'Imprimante sans fil déconnectée : allumez-la, puis cliquez sur « Reconnecter ».'
+      : 'Imprimante déconnectée : rebranchez-la et allumez-la (nouvel essai automatique).');
     paper = await readPaper();
     if (!paper.ok) throw Error(paper.text);
     await writeBytes(escpos(draw(lines)));
@@ -614,10 +625,11 @@ window.KCP = (() => {
   async function run() {
     if (!window.kcLastLoad) return;               // wait until orders have really loaded
     const done = readDone();
-    if (needBaseline) { orders.forEach((o) => { done[o.id] ??= 0; }); saveDone(done); needBaseline = false; renderOrders(); return; }
+    if (needBaseline) { orders.forEach((o) => { done[o.id] ??= 0; }); saveDone(done); needBaseline = false; cfg.baselined = true; saveCfg(); renderOrders(); return; }
     const now = Date.now();
-    const todo = orders.filter((o) => o.status === 'Nouvelle' && !(o.id in done) && now - new Date(o.created_at) < MAX_AGE).reverse();
-    if (todo.length) chime();
+    const todo = orders.filter((o) => o.status === 'Nouvelle' && !(o.id in done) && now - new Date(o.created_at) < MAX_AGE)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));   // oldest first
+    if (todo.some((o) => !chimed.has(o.id))) { todo.forEach((o) => chimed.add(o.id)); chime(); }   // once per new order
     for (const o of todo) {
       try {
         await send(ticket(o));
@@ -625,19 +637,22 @@ window.KCP = (() => {
         cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg();
         logEvent('print_ok', o.reference);
       } catch (e) {
-        lastError = `${o.reference} : ${e.message} Nouvel essai automatique dans 15 secondes.`;
-        logEvent('print_fail', `${o.reference} · ${e.message}`);
+        const msg = `${o.reference} : ${e.message} Nouvel essai automatique dans 15 secondes.`;
+        if (msg !== lastError) logEvent('print_fail', `${o.reference} · ${e.message}`);   // report each new problem once
+        lastError = msg;
         break;
       } finally { renderOrders(); render(); }
     }
   }
   let running = false;
+  const chimed = new Set();
   async function sync() {
     render();
-    if (!active() || running) return;
+    if (!cfg.mode || running) return;          // connected or not: run() reconnects and says why it waits
     running = true;
     try {
-      if (navigator.locks) await navigator.locks.request('kc-print', { ifAvailable: true }, (l) => (l ? run() : null));
+      // One tab prints at a time; the other waits its turn, then sees the order is already done.
+      if (navigator.locks) await navigator.locks.request('kc-print', () => run());
       else await run();
     } finally { running = false; }
   }
@@ -740,5 +755,5 @@ window.KCP = (() => {
   let opened = false;
   function onLogin() { if (opened) return; opened = true; logEvent('page_open', `${cfg.name} · ${navigator.userAgent.slice(0, 100)}`); report(true); }
 
-  return { sync, on: active, badge, printOne, render, loadRemote, onLogin, _ticket: ticket, _escpos: escpos, _draw: draw, _testTicket: testTicket };
+  return { sync, on: active, badge, printOne, render, loadRemote, onLogin, _poll: pollCommands, _ticket: ticket, _escpos: escpos, _draw: draw, _testTicket: testTicket };
 })();
