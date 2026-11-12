@@ -35,3 +35,12 @@ The print button opens `admin.html#imprimer=<reference>`. After admin login, tha
 Secrets: `BREVO_API_KEY` (required; `kaycharly37@gmail.com` must be a verified Brevo sender). Optional: `OWNER_EMAIL`, `SENDER_EMAIL`, `SITE_ORIGIN` (default `https://maniksahni.github.io`). Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Sent emails can be checked in Brevo under Transactional → Logs.
 
 If sending fails, the order is still saved and stays visible in the admin.
+
+## Automatic printing
+
+`admin-print.js` prints each new order on the restaurant computer while the admin is open and logged in, plays a sound, and marks the card "Imprimé à …". Orders that existed before printing was switched on, and orders older than 12 hours, are never printed automatically. The "🖨️ Imprimante" tab shows live checks (browser, live orders, printer, silent printing, screen, sound), a test ticket with a "did it come out?" question, and the one-time setup steps.
+
+- **Imprimante de l’ordinateur** (recommended on Windows): prints to the default printer (Brother QL-700, 62 mm continuous roll). To print without a dialog, open the admin with a Chrome shortcut that adds `--kiosk-printing`; the test ticket detects whether a print window still appears.
+- **USB direct**: Chrome/Edge drive the Brother QL over WebUSB and read its real status (roll, cover, errors). Not available when the Windows Brother driver holds the printer.
+
+The admin keeps polling every 15 seconds from a worker timer so background tabs keep printing; keeping the tab in front is still recommended.
