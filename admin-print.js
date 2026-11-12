@@ -80,7 +80,7 @@ window.KCP = (() => {
       os: isWindows ? 'Windows' : isMac ? 'macOS' : navigator.platform || '', browser_version: chrome,
       usb: !!navigator.usb, bluetooth: !!navigator.bluetooth, serial: !!navigator.serial,
       tried: failed(), next_method: cfg.mode ? null : nextMethod().id, paper: paper?.text || null,
-      visible: !document.hidden, screen_awake: !!wakeLock, sound: !!cfg.sound,
+      visible: !document.hidden, screen_awake: !!wakeLock, sound: !!cfg.sound, wizard: WZ.open ? wizardScreen().id : null,
     };
   }
   async function report(force = false) {
@@ -331,7 +331,7 @@ window.KCP = (() => {
     try {
       await closeAll();
       await openUsb(d);
-      cfg = { ...cfg, mode: 'usb', usb: { vendorId: d.vendorId, productId: d.productId }, printerName: nameOfUsb(d), confirmedAt: undefined, silent: undefined, failed: [] };
+      cfg = { ...cfg, mode: 'usb', usb: { vendorId: d.vendorId, productId: d.productId }, printerName: nameOfUsb(d), confirmedAt: undefined, silent: undefined };
       saveCfg(); needBaseline = true;
       logEvent('connect_usb_ok', cfg.printerName);
       await afterConnect();
@@ -363,7 +363,7 @@ window.KCP = (() => {
       await closeAll();
       await openSerial(p);
       const info = p.getInfo();
-      cfg = { ...cfg, mode: 'serial', serial: { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId }, printerName: info.usbVendorId ? `Port série USB ${info.usbVendorId.toString(16)}:${(info.usbProductId || 0).toString(16)}` : 'Imprimante Bluetooth', confirmedAt: undefined, silent: undefined, failed: [] };
+      cfg = { ...cfg, mode: 'serial', serial: { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId }, printerName: info.usbVendorId ? `Port série USB ${info.usbVendorId.toString(16)}:${(info.usbProductId || 0).toString(16)}` : 'Imprimante Bluetooth', confirmedAt: undefined, silent: undefined };
       saveCfg(); needBaseline = true;
       logEvent('connect_bt_ok', cfg.printerName);
       await afterConnect();
@@ -380,7 +380,7 @@ window.KCP = (() => {
   async function useDriver() {
     connectHelp = ''; lastError = '';
     await closeAll();
-    cfg = { ...cfg, mode: 'browser', printerName: 'Imprimante par défaut de l’ordinateur', confirmedAt: undefined, silent: undefined, failed: [] };
+    cfg = { ...cfg, mode: 'browser', printerName: 'Imprimante par défaut de l’ordinateur', confirmedAt: undefined, silent: undefined };
     saveCfg(); needBaseline = true;
     logEvent('connect_driver');
     await afterConnect();
@@ -402,7 +402,7 @@ window.KCP = (() => {
     try {
       await closeAll();
       await openBle(d);
-      cfg = { ...cfg, mode: 'ble', ble: { id: d.id }, printerName: d.name || 'Imprimante Bluetooth', confirmedAt: undefined, silent: undefined, failed: [] };
+      cfg = { ...cfg, mode: 'ble', ble: { id: d.id }, printerName: d.name || 'Imprimante Bluetooth', confirmedAt: undefined, silent: undefined };
       saveCfg(); needBaseline = true;
       logEvent('connect_ble_ok', cfg.printerName);
       await afterConnect();
@@ -570,11 +570,12 @@ window.KCP = (() => {
     $('printerTest').disabled = !cfg.mode;
     if (document.activeElement !== $('deviceName')) $('deviceName').value = cfg.name;
     $('stepsWin').hidden = isMac; $('stepsMac').hidden = !isMac;
+    if (WZ.open && !WZ.busy) wizardRender();
     report();
   }
 
   // ---------- remote follow-up: every computer's printer, seen from any admin ----------
-  const EVENT_LABELS = { connect_ble_click: 'Clic sur « sans fil »', connect_ble_ok: 'Connectée sans fil (Bluetooth)', connect_ble_cancel: 'Liste Bluetooth sans fil fermée sans choisir', connect_ble_fail: 'Échec Bluetooth sans fil', ladder_reset: 'Recommencer les méthodes', remote_test: 'Ticket test demandé à distance', remote_test_done: 'Ticket test à distance imprimé ✓', remote_test_fail: 'Ticket test à distance impossible', connect_usb_click: 'Clic sur « Connecter » (USB)', connect_usb_ok: 'Connectée en USB', connect_usb_cancel: 'Liste USB fermée sans choisir', connect_usb_fail: 'Échec de connexion USB', connect_bt_click: 'Clic sur « Bluetooth »', connect_bt_ok: 'Connectée en Bluetooth', connect_bt_cancel: 'Liste Bluetooth fermée sans choisir', connect_bt_fail: 'Échec Bluetooth', connect_driver: 'Pilote de l’ordinateur choisi', test_print: 'Ticket test envoyé', test_yes: 'Ticket test confirmé ✓', test_no: 'Ticket test PAS sorti', test_fail: 'Ticket test impossible', print_ok: 'Commande imprimée', print_fail: 'Échec d’impression', disconnect: 'Impression arrêtée', page_open: 'Admin ouvert' };
+  const EVENT_LABELS = { wizard_open: 'Assistant ouvert', help_requested: '🆘 AIDE DEMANDÉE', try_other: 'Ticket pas sorti → autre méthode', connect_ble_click: 'Clic sur « sans fil »', connect_ble_ok: 'Connectée sans fil (Bluetooth)', connect_ble_cancel: 'Liste Bluetooth sans fil fermée sans choisir', connect_ble_fail: 'Échec Bluetooth sans fil', ladder_reset: 'Recommencer les méthodes', remote_test: 'Ticket test demandé à distance', remote_test_done: 'Ticket test à distance imprimé ✓', remote_test_fail: 'Ticket test à distance impossible', connect_usb_click: 'Clic sur « Connecter » (USB)', connect_usb_ok: 'Connectée en USB', connect_usb_cancel: 'Liste USB fermée sans choisir', connect_usb_fail: 'Échec de connexion USB', connect_bt_click: 'Clic sur « Bluetooth »', connect_bt_ok: 'Connectée en Bluetooth', connect_bt_cancel: 'Liste Bluetooth fermée sans choisir', connect_bt_fail: 'Échec Bluetooth', connect_driver: 'Pilote de l’ordinateur choisi', test_print: 'Ticket test envoyé', test_yes: 'Ticket test confirmé ✓', test_no: 'Ticket test PAS sorti', test_fail: 'Ticket test impossible', print_ok: 'Commande imprimée', print_fail: 'Échec d’impression', disconnect: 'Impression arrêtée', page_open: 'Admin ouvert' };
   async function loadRemote() {
     if (!loggedIn() || $('printer')?.hidden) return;
     try {
@@ -591,6 +592,7 @@ window.KCP = (() => {
           + `<small>${r.ready ? 'Prêt : impression automatique active.' : r.stuck_step ? `Bloqué à l’étape ${r.stuck_step} : ${h(r.stuck_label)}` : 'Pas encore configuré.'}</small>`
           + (r.last_print_ref ? `<small>Dernier ticket : ${h(r.last_print_ref)} · ${clock(r.last_print_at)}</small>` : '')
           + (r.last_error ? `<small class="err">Erreur : ${h(r.last_error)}</small>` : '')
+          + (r.diag?.wizard ? `<small>Assistant ouvert · écran : ${h(r.diag.wizard)}</small>` : '')
           + (r.diag && r.diag.os ? `<small>${h(r.diag.os)} · Chrome ${h(r.diag.browser_version || '?')} · USB ${r.diag.usb ? '✓' : '✕'} · Bluetooth ${r.diag.bluetooth ? '✓' : '✕'} · COM ${r.diag.serial ? '✓' : '✕'}${r.diag.tried?.length ? ' · déjà essayé : ' + h(r.diag.tried.map((t) => MODE_NAME[t] || t).join(', ')) : ''}${r.diag.visible === false ? ' · page cachée' : ''}</small>` : '')
           + (fresh && r.mode ? `<button type="button" class="secondary small" data-remote-test="${h(r.device_id)}" data-name="${h(r.device_name)}">Imprimer un ticket test là-bas</button>` : '') + '</div></li>';
       }).join('') || '<li class="warn"><span>…</span><div><b>Aucun ordinateur pour l’instant</b><small>L’état apparaît ici dès que l’admin est ouvert sur l’ordinateur du restaurant.</small></div></li>';
@@ -690,7 +692,7 @@ window.KCP = (() => {
   }
   function answer(ok) {
     $('testAsk').hidden = true;
-    if (ok) { cfg.confirmedAt = Date.now(); lastError = ''; logEvent('test_yes'); }
+    if (ok) { cfg.confirmedAt = Date.now(); cfg.failed = []; connectHelp = ''; lastError = ''; logEvent('test_yes'); }   // a ticket really came out: forget failed methods
     else {
       cfg.confirmedAt = undefined;
       lastError = cfg.mode === 'browser'
@@ -714,6 +716,115 @@ window.KCP = (() => {
     render(); renderOrders(); report(true);
   }
   function preview() { $('printerPreviewBox').replaceChildren(draw(testTicket())); $('printerPreview').showModal(); }
+
+  // ---------- full-screen assistant: one step per screen, big text, drawings, read aloud ----------
+  // Screens 0–2 are physical (paper, cables) and move on with "C’est fait". From screen 3 on, the screen
+  // shown follows the real state: not connected → connect, no confirmed ticket → test, window still
+  // opening (driver) → shortcut, otherwise → done.
+  const ART = {
+    hello: '<svg viewBox="0 0 220 140"><rect x="40" y="40" width="140" height="80" rx="12" fill="#2b2f2d"/><rect x="60" y="28" width="100" height="22" rx="6" fill="#3d4340"/><rect x="78" y="6" width="64" height="40" fill="#fff" stroke="#999"/><line x1="86" y1="16" x2="134" y2="16" stroke="#444" stroke-width="3"/><line x1="86" y1="26" x2="124" y2="26" stroke="#888" stroke-width="3"/><circle cx="160" cy="100" r="6" fill="#3ddc84"/><text x="110" y="136" text-anchor="middle" font-size="13" fill="#1b4234">Votre imprimante</text></svg>',
+    paper: '<svg viewBox="0 0 220 140"><rect x="30" y="70" width="160" height="56" rx="10" fill="#2b2f2d"/><path d="M40 70 L60 28 L180 28 L180 70 Z" fill="#555" opacity=".45"/><circle cx="110" cy="92" r="24" fill="#fff" stroke="#aaa" stroke-width="2"/><circle cx="110" cy="92" r="8" fill="#ddd"/><path d="M110 68 C 130 60 150 56 170 48" stroke="#fff" stroke-width="8" fill="none"/><path d="M160 40 l14 8 -14 8" fill="#f2b53a"/><text x="110" y="20" text-anchor="middle" font-size="12" fill="#1b4234">Le papier sort par-dessus, vers vous</text></svg>',
+    power: '<svg viewBox="0 0 220 140"><rect x="70" y="40" width="110" height="70" rx="10" fill="#2b2f2d"/><circle cx="160" cy="95" r="6" fill="#3ddc84"/><path d="M70 60 C 40 60 40 110 14 110" stroke="#111" stroke-width="5" fill="none"/><rect x="2" y="102" width="16" height="16" rx="3" fill="#f2b53a"/><text x="10" y="134" text-anchor="middle" font-size="10" fill="#1b4234">Prise</text><path d="M70 80 C 50 80 50 30 20 30" stroke="#3a66d8" stroke-width="5" fill="none"/><rect x="4" y="22" width="18" height="16" rx="3" fill="#3a66d8"/><text x="13" y="16" text-anchor="middle" font-size="10" fill="#1b4234">USB → ordinateur</text><text x="160" y="126" text-anchor="middle" font-size="11" fill="#1b4234">lumière allumée</text></svg>',
+    connect: '<svg viewBox="0 0 220 140"><rect x="10" y="30" width="90" height="62" rx="6" fill="#1b4234"/><rect x="18" y="38" width="74" height="46" fill="#f6efe2"/><rect x="28" y="54" width="54" height="16" rx="8" fill="#1b4234"/><text x="55" y="65" text-anchor="middle" font-size="8" fill="#fff">Connecter</text><path d="M104 62 h30" stroke="#f2b53a" stroke-width="4" stroke-dasharray="6 5"/><rect x="140" y="44" width="70" height="44" rx="8" fill="#2b2f2d"/><rect x="156" y="30" width="38" height="20" fill="#fff" stroke="#999"/><text x="110" y="126" text-anchor="middle" font-size="12" fill="#1b4234">Un clic, puis choisir l’imprimante</text></svg>',
+    test: '<svg viewBox="0 0 220 140"><rect x="50" y="70" width="120" height="56" rx="10" fill="#2b2f2d"/><rect x="74" y="8" width="72" height="70" fill="#fff" stroke="#999"/><rect x="80" y="16" width="60" height="10" fill="#111"/><line x1="82" y1="38" x2="138" y2="38" stroke="#555" stroke-width="3"/><line x1="82" y1="50" x2="128" y2="50" stroke="#888" stroke-width="3"/><line x1="82" y1="62" x2="134" y2="62" stroke="#888" stroke-width="3"/></svg>',
+    window: '<svg viewBox="0 0 220 140"><rect x="20" y="20" width="180" height="100" rx="8" fill="#fff" stroke="#bbb"/><rect x="20" y="20" width="180" height="18" rx="8" fill="#e3e3e3"/><text x="110" y="70" text-anchor="middle" font-size="13" fill="#a82c22">Fenêtre d’impression</text><path d="M60 92 l100 -40 M60 52 l100 40" stroke="#a82c22" stroke-width="5"/></svg>',
+    done: '<svg viewBox="0 0 220 140"><circle cx="110" cy="66" r="50" fill="#1c6b43"/><path d="M84 66 l18 18 l36 -38" stroke="#fff" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  };
+  const WZ = { open: false, i: 0, voice: false, helpSent: false, lastSpoken: '' };
+
+  function wizardScreen() {
+    if (WZ.i < 3) return [
+      { id: 'hello', title: 'Connectons l’imprimante', text: 'Ça prend deux minutes. Suivez les dessins, une étape à la fois. Vous pouvez appuyer sur « Lire à voix haute » à tout moment.', next: 'Commencer' },
+      { id: 'paper', title: 'Mettre le papier', text: 'Ouvrez le capot de l’imprimante. Posez le rouleau pour que le papier sorte par-dessus, vers vous. Laissez dépasser un peu de papier, puis refermez le capot en appuyant fort jusqu’au clic.', next: 'C’est fait' },
+      { id: 'power', title: 'Brancher et allumer', text: 'Branchez le câble électrique dans la prise, et le câble USB dans l’ordinateur. Appuyez sur l’interrupteur de l’imprimante : la petite lumière s’allume.', next: 'C’est fait, la lumière est allumée' },
+    ][WZ.i];
+    if (!cfg.mode) {
+      const m = nextMethod();
+      return { id: 'connect', title: 'Connecter l’imprimante au site', text: m.hint, method: m };
+    }
+    if (!cfg.confirmedAt) return { id: 'test', title: 'Un ticket est-il sorti de l’imprimante ?', text: 'Regardez l’imprimante : un ticket « IMPRIMANTE CONNECTÉE » doit sortir. S’il n’est pas encore sorti, attendez 10 secondes.' };
+    if (cfg.mode === 'browser' && cfg.silent !== true) return { id: 'window', title: 'Dernière petite chose', text: 'Une fenêtre d’impression s’ouvre encore. Il faut ouvrir le site avec le raccourci « Kay Charly Caisse ». La personne qui s’occupe du site peut le faire en une minute : cliquez sur « J’ai besoin d’aide ».' };
+    return { id: 'done', title: 'Bravo, c’est prêt !', text: 'Laissez cette page ouverte. Chaque nouvelle commande s’imprimera toute seule, et un son vous préviendra.', next: 'Terminer' };
+  }
+  const SCREEN_ORDER = ['hello', 'paper', 'power', 'connect', 'test', 'window', 'done'];
+
+  function speak(text) {
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'fr-FR'; u.rate = 0.9;
+      const fr = speechSynthesis.getVoices().find((v) => /^fr/i.test(v.lang));
+      if (fr) u.voice = fr;
+      speechSynthesis.speak(u);
+    } catch {}
+  }
+
+  function wizardRender() {
+    const box = $('wizard');
+    if (!box || !WZ.open) return;
+    const sc = wizardScreen(), pos = SCREEN_ORDER.indexOf(sc.id), total = cfg.mode === 'browser' ? 7 : 6;
+    const shown = Math.min(pos, total - 1) + 1;
+    let act = '';
+    if (sc.id === 'connect') {
+      act = `<button type="button" class="wz-main" data-wz="connect">${h(sc.method.button)}</button>`
+        + (connectHelp ? `<p class="wz-warn">${h(connectHelp)}</p>` : '')
+        + (failed().length ? `<p class="wz-small">Déjà essayé : ${h(failed().map((f) => MODE_NAME[f]).join(', '))}. <button type="button" class="link" data-wz="restart">Recommencer depuis le début</button></p>` : '');
+    } else if (sc.id === 'test') {
+      act = !$('testAsk').hidden
+        ? `<div class="wz-row"><button type="button" class="wz-main" data-wz="yes">✓ Oui, il est sorti</button><button type="button" class="wz-alt" data-wz="no">✕ Non, rien n’est sorti</button></div>`
+        : `<button type="button" class="wz-main" data-wz="test">Imprimer un ticket test</button>`;
+      if (lastError) act += `<p class="wz-warn">${h(lastError)}</p><div class="wz-row"><button type="button" class="wz-alt" data-wz="test">Réessayer le ticket</button><button type="button" class="wz-alt" data-wz="other">Essayer une autre méthode</button></div>`;
+    } else if (sc.id === 'window') {
+      act = `<button type="button" class="wz-main" data-wz="test">J’ai ouvert avec le raccourci : refaire le test</button>`;
+    } else act = `<button type="button" class="wz-main" data-wz="next">${h(sc.next)}</button>`;
+    box.innerHTML = `<div class="wz-card" role="dialog" aria-modal="true" aria-labelledby="wzTitle">
+      <div class="wz-top"><span>Étape ${shown} sur ${total}</span><div class="wz-dots">${Array.from({ length: total }, (_, k) => `<i class="${k < shown ? 'on' : ''}"></i>`).join('')}</div><button type="button" class="wz-x" data-wz="close" aria-label="Fermer">✕</button></div>
+      <div class="wz-art">${ART[sc.id]}</div>
+      <h2 id="wzTitle">${h(sc.title)}</h2><p class="wz-text">${h(sc.text)}</p>
+      <div class="wz-act">${act}</div>
+      <div class="wz-foot">${WZ.i > 0 && WZ.i < 3 ? '<button type="button" class="wz-alt" data-wz="back">← Retour</button>' : ''}<button type="button" class="wz-alt" data-wz="voice">${WZ.voice ? '🔊 Voix activée' : '🔈 Lire à voix haute'}</button><button type="button" class="wz-alt" data-wz="help">🆘 J’ai besoin d’aide</button></div>
+      ${WZ.helpSent ? '<p class="wz-small">Demande d’aide envoyée : la personne qui s’occupe du site voit à quelle étape vous êtes.</p>' : ''}
+    </div>`;
+    const say = sc.title + '. ' + sc.text;
+    if (WZ.voice && say !== WZ.lastSpoken) { WZ.lastSpoken = say; speak(say); }
+  }
+
+  function openWizard() {
+    WZ.open = true; WZ.helpSent = false;
+    WZ.i = cfg.mode ? 3 : 0;
+    $('wizard').hidden = false; document.body.classList.add('wz-on');
+    logEvent('wizard_open'); wizardRender();
+  }
+  function closeWizard() {
+    WZ.open = false; $('wizard').hidden = true; document.body.classList.remove('wz-on');
+    try { speechSynthesis.cancel(); sessionStorage.setItem('kc-wz-closed', '1'); } catch {}
+    document.querySelector('[data-tab="printer"]')?.click();
+  }
+  // Ticket did not come out with this method: forget it and go back to "connect" with the next one.
+  async function tryOther() {
+    const was = cfg.mode;
+    if (was) markFailed(was);
+    await closeAll();
+    cfg = { sound: cfg.sound, name: cfg.name, failed: cfg.failed, bleChunk: cfg.bleChunk };
+    connectHelp = `Le ticket n’est pas sorti par ${MODE_NAME[was] || 'cette méthode'}. Essayons la méthode suivante.`;
+    lastError = ''; saveCfg(); logEvent('try_other', was || '');
+    render(); wizardRender();
+  }
+  async function wizardAction(a) {
+    const sc = wizardScreen();
+    if (a === 'next') { if (sc.id === 'done') return closeWizard(); WZ.i++; }
+    else if (a === 'back') WZ.i = Math.max(0, WZ.i - 1);
+    else if (a === 'close') return closeWizard();
+    else if (a === 'voice') { WZ.voice = !WZ.voice; WZ.lastSpoken = ''; if (!WZ.voice) try { speechSynthesis.cancel(); } catch {} }
+    else if (a === 'help') { WZ.helpSent = true; logEvent('help_requested', `${sc.title} · ${(connectHelp || lastError || '').slice(0, 200)}`); report(true); }
+    else if (a === 'connect') { WZ.busy = true; await connect(); WZ.busy = false; }
+    else if (a === 'restart') restartLadder();
+    else if (a === 'test') await test();
+    else if (a === 'yes') answer(true);
+    else if (a === 'no') answer(false);
+    else if (a === 'other') await tryOther();
+    wizardRender();
+  }
 
   function init() {
     const actions = {
@@ -739,7 +850,11 @@ window.KCP = (() => {
     $('printerSound').onclick = () => { cfg.sound = !cfg.sound; saveCfg(); if (cfg.sound) chime(); render(); };
     $('deviceName').onchange = (e) => { cfg.name = e.target.value.trim().slice(0, 60) || cfg.name; saveCfg(); render(); report(true); };
     $('copyCmd').onclick = () => navigator.clipboard?.writeText($('shortcutCmd').textContent).then(() => { $('copyCmd').textContent = 'Copié ✓'; });
-    $('printerGo').onclick = () => document.querySelector('[data-tab="printer"]').click();
+    $('printerGo').onclick = () => (cfg.mode ? document.querySelector('[data-tab="printer"]').click() : openWizard());
+    $('printerWizard').onclick = openWizard;
+    $('wizard').onclick = (e) => { const b = e.target.closest('[data-wz]'); if (b && !b.disabled) wizardAction(b.dataset.wz); };
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && WZ.open) closeWizard(); });
+    window.addEventListener('hashchange', () => { if (location.hash === '#imprimante' && loggedIn()) openWizard(); });
     document.addEventListener('visibilitychange', () => { keepAwake(); render(); });
     navigator.usb?.addEventListener('disconnect', (e) => { if (e.device === usbDev) { usbDev = null; pendingUsb = null; paper = null; logEvent('print_fail', 'Câble USB débranché ou imprimante éteinte'); render(); } });
     navigator.usb?.addEventListener('connect', () => reconnect().then(sync));
@@ -753,7 +868,12 @@ window.KCP = (() => {
 
   // Called by admin.js once the admin is logged in.
   let opened = false;
-  function onLogin() { if (opened) return; opened = true; logEvent('page_open', `${cfg.name} · ${navigator.userAgent.slice(0, 100)}`); report(true); }
+  function onLogin() {
+    if (opened) return; opened = true;
+    logEvent('page_open', `${cfg.name} · ${navigator.userAgent.slice(0, 100)}`); report(true);
+    let closedBefore = false; try { closedBefore = !!sessionStorage.getItem('kc-wz-closed'); } catch {}
+    if (location.hash === '#imprimante' || (!cfg.mode && !closedBefore)) openWizard();
+  }
 
-  return { sync, on: active, badge, printOne, render, loadRemote, onLogin, _poll: pollCommands, _ticket: ticket, _escpos: escpos, _draw: draw, _testTicket: testTicket };
+  return { sync, on: active, badge, printOne, render, loadRemote, onLogin, openWizard, _poll: pollCommands, _ticket: ticket, _escpos: escpos, _draw: draw, _testTicket: testTicket };
 })();
