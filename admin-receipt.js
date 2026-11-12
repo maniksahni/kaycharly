@@ -1,6 +1,6 @@
 'use strict';
 // Printable receipt for one order (opened from the owner email link admin.html#imprimer=KC-…, or the order card button).
-// Laid out for 62 mm roll paper (Brother QL-700); also prints fine on A4/80 mm.
+// Prints on whatever paper the printer is set to (width follows the paper).
 (()=>{const W=28,eur=c=>(Number(c)/100).toFixed(2).replace('.',',')+' €',h=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const wrap=(t,w)=>{const out=[];let l='';for(const x of String(t??'').split(/\s+/)){if(!x)continue;for(let p=x;p;p=p.slice(w)){const s=p.slice(0,w);if(l&&(l+' '+s).length>w){out.push(l);l=s}else l=l?l+' '+s:s}}if(l)out.push(l);return out.length?out:['']};
 function lines(o){const L=[],add=(t,cls='')=>L.push([t,cls]),rule=()=>add('-'.repeat(W),'r'),delivery=/livraison/i.test(o.pickup||''),pair=(a,b,cls)=>wrap(a,W-b.length-1).forEach((r,k)=>add(k?r:r.padEnd(W-b.length)+b,k?'':cls));

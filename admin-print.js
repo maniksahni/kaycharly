@@ -107,7 +107,7 @@ window.KCP = (() => {
 
   // ---------- printing through the computer's printer ----------
   function ticketHtml(lines) {
-    return `<!doctype html><meta charset="utf-8"><style>@page{margin:2mm}body{font:13px/1.3 Arial,sans-serif;margin:0;width:58mm;color:#000}.c{text-align:center}.b{font-weight:700}.g{font-size:18px}.t{font-size:26px;font-weight:700}.r{display:flex;justify-content:space-between;gap:10px}hr{border:0;border-top:1px solid #000}p{margin:2px 0;overflow-wrap:anywhere}.i{background:#000;color:#fff;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style>`
+    return `<!doctype html><meta charset="utf-8"><style>@page{margin:2mm}body{font:13px/1.3 Arial,sans-serif;margin:0;width:auto;color:#000}.c{text-align:center}.b{font-weight:700}.g{font-size:18px}.t{font-size:26px;font-weight:700}.r{display:flex;justify-content:space-between;gap:10px}hr{border:0;border-top:1px solid #000}p{margin:2px 0;overflow-wrap:anywhere}.i{background:#000;color:#fff;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style>`
       + lines.map((l) => l.rule ? '<hr>' : `<p class="${l.center ? 'c ' : ''}${l.bold ? 'b ' : ''}${l.size === 'big' ? 'g ' : ''}${l.size === 'title' ? 't ' : ''}${l.invert ? 'i ' : ''}${'left' in l ? 'r' : ''}">${'left' in l ? `<span>${h(l.left)}</span><span>${h(l.right)}</span>` : h(l.t)}</p>`).join('');
   }
 
@@ -164,7 +164,7 @@ window.KCP = (() => {
     if (b[8] & 4) throw Error('Massicot bloqué.');
     if (b[9] & 0x10) throw Error('Capot ouvert : refermez le capot.');
     if (b[8] || b[9]) throw Error('Imprimante en erreur : éteignez-la puis rallumez-la.');
-    if (b[11] === 0x0b) throw Error('Installez un rouleau continu (DK-22205, 62 mm).');
+    if (b[11] === 0x0b) throw Error('Rouleau d’étiquettes prédécoupées : choisissez plutôt « Imprimante de l’ordinateur ».');
     if (!ROLLS[b[10]]) throw Error('Largeur de rouleau non prise en charge.');
     if (cfg.mm !== b[10]) { cfg.mm = b[10]; saveCfg(); }
   }
@@ -224,49 +224,61 @@ window.KCP = (() => {
     render();
   }
 
-  // ---------- live checks shown in the tab ----------
-  function checks() {
+  // ---------- guided connection: each step is checked live, the first one not done is "next" ----------
+  // Each step: { ok, warn?, label, text, action?: [buttonLabel, handlerName] }
+  function steps() {
     const live = window.kcLastLoad && Date.now() - window.kcLastLoad < 60000;
-    const list = [];
-    list.push(isChromium()
-      ? { ok: true, label: 'Navigateur', text: 'Google Chrome / Microsoft Edge' }
-      : { ok: false, label: 'Navigateur', text: 'Ouvrez cette page avec Google Chrome (ou Microsoft Edge).' });
-    list.push(live
-      ? { ok: true, label: 'Commandes en direct', text: 'Connecté · vérification toutes les 15 secondes' }
-      : { ok: false, label: 'Commandes en direct', text: 'Pas de connexion récente. Vérifiez internet puis cliquez sur Actualiser.' });
-    if (!cfg.mode) {
-      list.push({ ok: false, label: 'Imprimante', text: 'Aucune imprimante choisie : cliquez sur « Imprimante de l’ordinateur » ci-dessous.' });
-    } else if (cfg.mode === 'usb') {
-      list.push(device && usbState?.ok
-        ? { ok: true, label: 'Imprimante (USB direct)', text: usbState.text }
-        : { ok: false, label: 'Imprimante (USB direct)', text: device ? usbState?.text || 'Lecture de l’état…' : 'Imprimante débranchée ou éteinte. Rebranchez-la puis cliquez sur « Revérifier ».' });
+    const S = [];
+    S.push(isChromium()
+      ? { ok: true, label: 'Navigateur compatible', text: 'Google Chrome / Microsoft Edge' }
+      : { ok: false, label: 'Navigateur compatible', text: 'Ouvrez cette page avec Google Chrome (ou Microsoft Edge).' });
+    S.push(live
+      ? { ok: true, label: 'Commandes reçues en direct', text: 'Connecté · nouvelle vérification toutes les 15 secondes' }
+      : { ok: false, label: 'Commandes reçues en direct', text: 'Pas de connexion récente : vérifiez internet.', action: ['Actualiser', 'recheck'] });
+    if (cfg.mode === 'usb') {
+      S.push(device && usbState?.ok
+        ? { ok: true, label: 'Imprimante connectée (USB direct)', text: usbState.text }
+        : { ok: false, label: 'Imprimante connectée (USB direct)', text: device ? usbState?.text || 'Lecture de l’état…' : 'Imprimante débranchée ou éteinte : rebranchez-la, allumez-la.', action: ['Revérifier', 'recheck'] });
     } else {
-      list.push(cfg.confirmedAt
-        ? { ok: true, label: 'Imprimante de l’ordinateur', text: `Ticket test sorti le ${clock(cfg.confirmedAt)}` }
-        : { ok: false, label: 'Imprimante de l’ordinateur', text: 'Pas encore confirmée : imprimez un ticket test.' });
-      list.push(cfg.silent === true
-        ? { ok: true, label: 'Impression sans fenêtre', text: 'Les tickets sortent tout seuls, sans cliquer.' }
-        : { ok: false, label: 'Impression sans fenêtre', text: cfg.silent === false ? 'Une fenêtre d’impression s’ouvre : ouvrez l’admin avec le raccourci « Kay Charly Caisse » (voir Les étapes, plus bas).' : 'Pas encore vérifiée : imprimez un ticket test.' });
+      S.push(cfg.mode
+        ? { ok: true, label: 'Imprimante choisie', text: 'Imprimante de l’ordinateur (celle définie par défaut dans Windows)' }
+        : { ok: false, label: 'Imprimante choisie', text: 'Branchez et allumez l’imprimante, puis connectez-la au site.', action: ['Connecter l’imprimante de l’ordinateur', 'chooseBrowser'] });
     }
-    list.push(wakeLock
-      ? { ok: true, label: 'Écran', text: 'Reste allumé tant que cette page est ouverte' }
-      : { ok: false, warn: true, label: 'Écran', text: document.hidden ? 'Page cachée : gardez cet onglet devant les autres.' : 'Mise en veille possible : réglez la mise en veille de l’ordinateur sur « Jamais ».' });
-    list.push({ ok: cfg.sound, warn: !cfg.sound, label: 'Son des nouvelles commandes', text: cfg.sound ? 'Activé' : 'Coupé' });
-    if (lastError) list.push({ ok: false, label: 'Dernière impression', text: lastError });
-    return list;
+    S.push(cfg.confirmedAt
+      ? { ok: true, label: 'Ticket test sorti', text: `Confirmé le ${clock(cfg.confirmedAt)}` }
+      : { ok: false, label: 'Ticket test sorti', text: 'Imprimez un ticket test et confirmez qu’il est bien sorti.', action: ['Imprimer un ticket test', 'test'] });
+    if (cfg.mode !== 'usb') {
+      S.push(cfg.silent === true
+        ? { ok: true, label: 'Impression sans fenêtre', text: 'Les tickets sortent tout seuls, personne n’a besoin de cliquer.' }
+        : { ok: false, label: 'Impression sans fenêtre', text: cfg.silent === false ? 'Une fenêtre d’impression s’ouvre encore : ouvrez l’admin avec le raccourci « Kay Charly Caisse », puis refaites le ticket test.' : 'Vérifiée automatiquement pendant le ticket test.', action: cfg.silent === false ? ['Voir comment faire', 'showSteps'] : null });
+    }
+    S.push(wakeLock
+      ? { ok: true, label: 'Écran toujours allumé', text: 'L’écran reste allumé tant que cette page est ouverte.' }
+      : { ok: false, warn: true, label: 'Écran toujours allumé', text: document.hidden ? 'Page cachée : gardez cet onglet devant les autres fenêtres.' : 'Réglez la mise en veille de l’ordinateur sur « Jamais ».' });
+    S.push({ ok: cfg.sound, warn: !cfg.sound, label: 'Son des nouvelles commandes', text: cfg.sound ? 'Activé' : 'Coupé', action: cfg.sound ? null : ['Activer le son', 'toggleSound'] });
+    S.push(lastError
+      ? { ok: false, label: 'Impression des commandes', text: lastError }
+      : cfg.lastPrint
+        ? { ok: true, label: 'Impression des commandes', text: `Dernier ticket : ${cfg.lastPrint.ref} à ${clock(cfg.lastPrint.at)}` }
+        : { ok: true, warn: true, label: 'Impression des commandes', text: 'En attente de la prochaine commande.' });
+    return S;
   }
 
   function render() {
     const bar = $('printerBar'), list = $('printerChecks');
     if (!bar) return;
-    const all = checks(), blocking = all.filter((c) => !c.ok && !c.warn);
-    const ready = active() && !blocking.length;
+    const all = steps(), next = all.find((s) => !s.ok && !s.warn);
+    const ready = active() && !next;
     bar.dataset.state = ready ? 'on' : 'off';
     $('printerState').textContent = ready
-      ? 'Impression automatique prête : chaque nouvelle commande s’imprime toute seule.'
-      : !cfg.mode ? 'Impression automatique désactivée : choisissez l’imprimante dans l’onglet Imprimante.'
-      : 'Impression automatique à vérifier : ' + blocking[0].text;
-    list.innerHTML = all.map((c) => `<li class="${c.ok ? 'ok' : c.warn ? 'warn' : 'ko'}"><span>${c.ok ? '✓' : c.warn ? '!' : '✕'}</span><div><b>${h(c.label)}</b><small>${h(c.text)}</small></div></li>`).join('');
+      ? 'Imprimante connectée : chaque nouvelle commande s’imprime automatiquement.'
+      : !cfg.mode ? 'Imprimante pas encore connectée au site : ouvrez l’onglet Imprimante.'
+      : 'Imprimante à vérifier : ' + next.text;
+    list.innerHTML = all.map((s, i) => `<li class="${s.ok && !s.warn ? 'ok' : s.ok || s.warn ? 'warn' : 'ko'}${s === next ? ' next' : ''}"><span>${s.ok && !s.warn ? '✓' : i + 1}</span><div><b>${h(s.label)}</b><small>${h(s.text)}</small>${s.action ? `<button type="button" class="${s === next ? '' : 'secondary '}small" data-step="${s.action[1]}">${h(s.action[0])}</button>` : ''}</div></li>`).join('');
+    $('printerNext').innerHTML = ready
+      ? '<b>✓ Tout est prêt.</b> Laissez cette page ouverte : les commandes s’impriment toutes seules.'
+      : `<b>Prochaine étape :</b> ${h(next.label)} — ${h(next.text)}`;
+    $('printerNext').dataset.state = ready ? 'on' : 'off';
     $('printerMode').textContent = cfg.mode === 'usb' ? 'USB direct (Brother)' : cfg.mode === 'browser' ? 'Imprimante de l’ordinateur' : 'Aucune';
     $('printerSound').textContent = cfg.sound ? '🔔 Son : activé' : '🔕 Son : coupé';
     $('printerOff').hidden = !cfg.mode;
@@ -285,7 +297,7 @@ window.KCP = (() => {
     for (const o of todo) {
       try {
         await send(ticket(o));
-        done[o.id] = Date.now(); saveDone(done); lastError = '';
+        done[o.id] = Date.now(); saveDone(done); lastError = ''; cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg();
       } catch (e) {
         if (['NetworkError', 'InvalidStateError', 'NotFoundError'].includes(e.name)) await reattach();
         lastError = `${o.reference} : ${e.message} Nouvel essai automatique dans 15 secondes.`;
@@ -308,7 +320,7 @@ window.KCP = (() => {
     const o = orders.find((x) => String(x.id) === String(id));
     if (!o) return;
     if (!active()) { KCReceipt.show(o, true); return; }   // no printer set up: open the receipt with the print window
-    try { await send(ticket(o)); const done = readDone(); done[o.id] = Date.now(); saveDone(done); lastError = ''; }
+    try { await send(ticket(o)); const done = readDone(); done[o.id] = Date.now(); saveDone(done); lastError = ''; cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg(); }
     catch (e) { lastError = `${o.reference} : ${e.message}`; }
     renderOrders(); render();
   }
@@ -353,7 +365,7 @@ window.KCP = (() => {
   function answer(ok) {
     $('testAsk').hidden = true;
     if (ok) { cfg.confirmedAt = Date.now(); lastError = ''; }
-    else { cfg.confirmedAt = undefined; lastError = 'Le ticket test n’est pas sorti : vérifiez câble, alimentation, rouleau et imprimante par défaut (voir Les étapes), puis réessayez.'; }
+    else { cfg.confirmedAt = undefined; lastError = 'Le ticket test n’est pas sorti : vérifiez le câble, que l’imprimante est allumée avec du papier, et qu’elle est l’imprimante par défaut (voir Les étapes), puis réessayez.'; }
     saveCfg(); render();
   }
   async function recheck() { if (cfg.mode === 'usb') await reattach(); await window.kcReload?.(); render(); }
@@ -376,6 +388,8 @@ window.KCP = (() => {
     $('printerClose').onclick = () => $('printerPreview').close();
     $('printerSound').onclick = () => { cfg.sound = !cfg.sound; saveCfg(); if (cfg.sound) chime(); render(); };
     $('copyCmd').onclick = () => navigator.clipboard?.writeText($('shortcutCmd').textContent).then(() => { $('copyCmd').textContent = 'Copié ✓'; });
+    const actions = { recheck, chooseBrowser, test, showSteps: () => $('stepsTitle').scrollIntoView({ behavior: 'smooth' }), toggleSound: () => $('printerSound').click() };
+    $('printerChecks').onclick = (e) => { const b = e.target.closest('[data-step]'); if (b) actions[b.dataset.step]?.(); };
     $('printerGo').onclick = () => document.querySelector('[data-tab="printer"]').click();
     document.addEventListener('visibilitychange', () => { keepAwake(); render(); });
     if (navigator.usb) {
