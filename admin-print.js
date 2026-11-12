@@ -1,44 +1,79 @@
 'use strict';
 // Kay Charly · automatic ticket printing for the admin page.
 //
-// Two ways to print, chosen once per computer in the "Imprimante" tab:
-//   • computer printer ("browser"): uses the printer installed in Windows/macOS. Prints without any
-//     window when Chrome/Edge is opened with --kiosk-printing (the "Kay Charly Caisse" shortcut).
-//   • USB direct ("usb"): Chrome/Edge talks straight to the Brother QL over WebUSB and reads its real
-//     status (roll, cover, errors). Only works when no Brother driver holds the printer.
+// Printer: 80 mm thermal receipt printer (ESC/POS, USB + Bluetooth, auto-cutter), 72 mm printable.
+// Tickets are continuous: as long as the order needs, then cut.
 //
-// While the admin is open and logged in, every new "Nouvelle" order is printed once, a sound plays,
-// and the order card shows "Imprimé à …". The tab lists live checks so the owner sees what is missing.
+// Three ways to connect, chosen in the "Imprimante" tab:
+//   • usb     – Chrome/Edge talk straight to the printer over USB (WebUSB, ESC/POS). Reads paper/cover status.
+//   • serial  – Bluetooth (or USB-serial) printer paired in the OS, opened as a COM port (Web Serial, ESC/POS).
+//   • browser – fallback through the printer driver installed on the computer (needs the Chrome
+//               --kiosk-printing shortcut to print without a window).
+//
+// Every state change is reported to Supabase (kc_printer_status + kc_printer_events) so the setup can be
+// followed from any other logged-in admin: which step the restaurant computer is stuck on, and why.
 
 window.KCP = (() => {
-  const CFG_KEY = 'kc-printer', DONE_KEY = 'kc-printed';
-  const MAX_AGE = 12 * 3600 * 1000;           // never auto-print orders older than 12 h
-  const BROTHER = 0x04f9;
-  const ROLLS = { 29: [306, 6], 38: [413, 12], 50: [554, 12], 54: [590, 0], 62: [696, 12] }; // printable dots, right margin
+  const CFG_KEY = 'kc-printer', DONE_KEY = 'kc-printed', DEV_KEY = 'kc-device';
+  const MAX_AGE = 12 * 3600 * 1000;     // never auto-print orders older than 12 h
+  const DOTS = 576;                      // 72 mm printable at 203 dpi
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const h = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const clock = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const ago = (t) => { const s = Math.round((Date.now() - new Date(t)) / 1000); return s < 60 ? `il y a ${s} s` : s < 3600 ? `il y a ${Math.round(s / 60)} min` : `le ${clock(t)}`; };
+  const isWindows = /Windows/i.test(navigator.userAgent), isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const isChromium = () => (navigator.userAgentData?.brands || []).some((b) => /Chrom|Edge/.test(b.brand)) || (/Chrome\/|Edg\//.test(navigator.userAgent) && !/OPR\/|Firefox\//.test(navigator.userAgent));
 
-  // ---------- saved settings ----------
+  // ---------- saved settings (per computer) ----------
   let cfg = {};
   try { cfg = JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch {}
+  if (cfg.mode === 'usb' && !cfg.usb) cfg = { sound: cfg.sound };   // old Brother setting: start fresh
   if (cfg.sound === undefined) cfg.sound = true;
+  if (!cfg.name) cfg.name = isWindows ? 'Ordinateur Windows' : isMac ? 'Mac' : 'Ordinateur';
   const saveCfg = () => { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch {} };
+  let deviceId = '';
+  try { deviceId = localStorage.getItem(DEV_KEY) || ''; if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem(DEV_KEY, deviceId); } } catch { deviceId = crypto.randomUUID(); }
 
   // Order id -> time printed. 0 = order that already existed when printing was switched on.
   const readDone = () => { try { return JSON.parse(localStorage.getItem(DONE_KEY) || '{}') || {}; } catch { return {}; } };
   const saveDone = (d) => { try { localStorage.setItem(DONE_KEY, JSON.stringify(Object.fromEntries(Object.entries(d).slice(-1000)))); } catch {} };
 
-  let device = null, epOut = 0, epIn = 0, pendingIn = null;
-  let usbState = null;          // { ok, text } from the last status read
+  // ---------- live state ----------
+  let usbDev = null, epOut = 0, epIn = 0, pendingUsb = null;   // WebUSB
+  let port = null, reader = null, pendingSerial = null;          // Web Serial
+  let paper = null;            // { ok, unknown?, low?, text } from the last ESC/POS status read
   let lastError = '';
+  let connectHelp = '';        // what to do after a failed connection attempt
   let needBaseline = !Object.keys(readDone()).length;
   let wakeLock = null;
 
-  const active = () => cfg.mode === 'browser' || (cfg.mode === 'usb' && !!device);
-  const isChromium = () => !!(navigator.userAgentData?.brands || []).some((b) => /Chrom|Edge/.test(b.brand)) || /Chrome\/|Edg\//.test(navigator.userAgent) && !/OPR\/|Firefox\//.test(navigator.userAgent);
-  const isWindows = /Windows/i.test(navigator.userAgent);
+  const linked = () => (cfg.mode === 'usb' && !!usbDev) || (cfg.mode === 'serial' && !!port);
+  const active = () => cfg.mode === 'browser' || linked();
+  const loggedIn = () => typeof session !== 'undefined' && !!session;
+
+  // ---------- backend: status + event log ----------
+  async function logEvent(event, detail = '') {
+    if (!loggedIn()) return;
+    try { await api('/rest/v1/kc_printer_events', { method: 'POST', body: { device_id: deviceId, event, detail: String(detail).slice(0, 300) }, headers: { Prefer: 'return=minimal' } }); } catch {}
+  }
+  let lastReport = '', lastReportAt = 0;
+  async function report(force = false) {
+    if (!loggedIn()) return;
+    const all = steps(), next = all.find((s) => !s.ok && !s.warn);
+    const row = {
+      device_id: deviceId, device_name: cfg.name.slice(0, 60), platform: navigator.userAgent.slice(0, 120),
+      mode: cfg.mode || '', printer_name: (cfg.printerName || '').slice(0, 120), ready: active() && !next,
+      stuck_step: next ? all.indexOf(next) + 1 : null, stuck_label: next ? `${next.label} — ${next.text}`.slice(0, 200) : '',
+      steps: all.map((s, i) => ({ n: i + 1, label: s.label, ok: s.ok, warn: !!s.warn, text: s.text })),
+      last_print_ref: cfg.lastPrint?.ref || '', last_print_at: cfg.lastPrint ? new Date(cfg.lastPrint.at).toISOString() : null,
+      last_error: lastError.slice(0, 300),
+    };
+    const sig = JSON.stringify(row);
+    if (!force && sig === lastReport && Date.now() - lastReportAt < 60000) return;
+    lastReport = sig; lastReportAt = Date.now();
+    try { await api('/rest/v1/kc_printer_status?on_conflict=device_id', { method: 'POST', body: { ...row, updated_at: new Date().toISOString() }, headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } }); } catch {}
+  }
 
   // ---------- the ticket ----------
   const money = (n) => (n / 100).toFixed(2).replace('.', ',') + ' €';
@@ -61,43 +96,50 @@ window.KCP = (() => {
     for (const i of o.items || []) L.push({ left: `${i.quantity} x ${KITCHEN[i.id] || i.name}`, right: money(i.price * i.quantity), bold: 1 });
     L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 }, { t: 'À régler en espèces à la remise', center: 1 });
     if (o.note) L.push({ rule: 1 }, { t: 'REMARQUE', bold: 1 }, { t: o.note, size: 'big', bold: 1 });
+    L.push({ rule: 1 }, { t: 'Kay Charly · 07 60 62 95 72', center: 1 });
     return L;
   }
-
   const SAMPLE = {
-    created_at: new Date().toISOString(), reference: 'KC-TEST000000', customer_name: 'TICKET TEST', phone: '07 60 62 95 72',
-    address: '12 rue de la Gare, 91540 Mennecy', pickup: 'Livraison · 10 h – 11 h 30', total: 2900, note: 'Ticket test : ne pas préparer',
+    reference: 'KC-TEST000000', customer_name: 'TICKET TEST', phone: '07 60 62 95 72', address: '12 rue de la Gare, 91540 Mennecy',
+    pickup: 'Livraison · 10 h – 11 h 30', total: 2900, note: 'Ticket test : ne pas préparer',
     items: [{ name: 'Menu poisson', quantity: 1, price: 1500 }, { name: 'Boudin noir', quantity: 1, price: 900 }, { name: 'Royal Soda Ananas', quantity: 2, price: 250 }],
   };
+  const testTicket = () => [
+    { t: 'KAY CHARLY', size: 'title', center: 1 },
+    { t: 'IMPRIMANTE CONNECTÉE', size: 'big', center: 1, invert: 1 },
+    { t: 'Les nouvelles commandes du site s’imprimeront ici automatiquement.', center: 1 },
+    { t: new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }), center: 1 },
+    ...ticket({ ...SAMPLE, created_at: new Date().toISOString() }).slice(4),
+  ];
 
-  // Canvas drawing (preview + USB raster).
-  function draw(lines, W) {
-    const S = W / 696, sizes = { title: 64 * S, big: 44 * S, normal: 32 * S }, pad = 10 * S;
+  // Canvas drawing at the printer's real width (576 dots = 72 mm); height grows with the order.
+  function draw(lines, W = DOTS) {
+    const S = W / 576, sizes = { title: 56 * S, big: 38 * S, normal: 27 * S }, pad = 4 * S;
     const c = document.createElement('canvas'), x = c.getContext('2d');
     const font = (l) => `${l.bold || l.invert || l.size === 'title' ? '700' : '400'} ${sizes[l.size || 'normal']}px Arial,Helvetica,sans-serif`;
-    const wrap = (t, w) => { const out = []; let line = ''; for (const word of String(t).split(/\s+/)) { const next = line ? line + ' ' + word : word; if (line && x.measureText(next).width > w) { out.push(line); line = word; } else line = next; } if (line) out.push(line); return out.length ? out : ['']; };
+    const wrap = (t, w) => { const out = []; let line = ''; for (const word of String(t ?? '').split(/\s+/)) { const next = line ? line + ' ' + word : word; if (line && x.measureText(next).width > w) { out.push(line); line = word; } else line = next; } if (line) out.push(line); return out.length ? out : ['']; };
     const pass = (render) => {
-      let y = 14 * S;
+      let y = 8 * S;
       for (const l of lines) {
-        if (l.rule) { y += 12 * S; if (render) x.fillRect(pad, y, W - 2 * pad, 3 * S); y += 16 * S; continue; }
+        if (l.rule) { y += 10 * S; if (render) x.fillRect(pad, y, W - 2 * pad, 3 * S); y += 14 * S; continue; }
         x.font = font(l);
         const lh = sizes[l.size || 'normal'] * 1.3;
         if ('left' in l) {
           const pw = x.measureText(l.right).width;
-          wrap(l.left, W - 2 * pad - pw - 24 * S).forEach((r, i) => {
+          wrap(l.left, W - 2 * pad - pw - 20 * S).forEach((r, i) => {
             if (render) { x.textAlign = 'left'; x.fillText(r, pad, y + lh * 0.8); if (!i) { x.textAlign = 'right'; x.fillText(l.right, W - pad, y + lh * 0.8); } }
             y += lh;
           });
-          y += 6 * S; continue;
+          y += 5 * S; continue;
         }
-        for (const r of wrap(l.t, W - 2 * pad - (l.invert ? 40 * S : 0))) {
+        for (const r of wrap(l.t, W - 2 * pad - (l.invert ? 32 * S : 0))) {
           if (l.invert && render) { x.fillRect(pad, y, W - 2 * pad, lh + 8 * S); x.fillStyle = '#fff'; }
           if (render) { x.textAlign = l.center ? 'center' : 'left'; x.fillText(r, l.center ? W / 2 : pad, y + lh * 0.8 + (l.invert ? 4 * S : 0)); x.fillStyle = '#000'; }
-          y += lh + (l.invert ? 14 * S : 0);
+          y += lh + (l.invert ? 12 * S : 0);
         }
         y += 2 * S;
       }
-      return Math.ceil(y + 20 * S);
+      return Math.ceil(y + 16 * S);
     };
     c.width = W; c.height = 10; x.textBaseline = 'alphabetic';
     const H = pass(false); c.height = H;
@@ -105,19 +147,195 @@ window.KCP = (() => {
     return c;
   }
 
-  // ---------- printing through the computer's printer ----------
-  function ticketHtml(lines) {
-    return `<!doctype html><meta charset="utf-8"><style>@page{margin:2mm}body{font:13px/1.3 Arial,sans-serif;margin:0;width:auto;color:#000}.c{text-align:center}.b{font-weight:700}.g{font-size:18px}.t{font-size:26px;font-weight:700}.r{display:flex;justify-content:space-between;gap:10px}hr{border:0;border-top:1px solid #000}p{margin:2px 0;overflow-wrap:anywhere}.i{background:#000;color:#fff;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style>`
-      + lines.map((l) => l.rule ? '<hr>' : `<p class="${l.center ? 'c ' : ''}${l.bold ? 'b ' : ''}${l.size === 'big' ? 'g ' : ''}${l.size === 'title' ? 't ' : ''}${l.invert ? 'i ' : ''}${'left' in l ? 'r' : ''}">${'left' in l ? `<span>${h(l.left)}</span><span>${h(l.right)}</span>` : h(l.t)}</p>`).join('');
+  // ---------- ESC/POS ----------
+  // Image printing (GS v 0) works on every ESC/POS printer and keeps French accents and € intact.
+  function escpos(canvas) {
+    const W = canvas.width, H = canvas.height, bytesPerRow = W / 8, img = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+    const parts = [new Uint8Array([0x1b, 0x40])];                          // ESC @  reset
+    for (let top = 0; top < H; top += 240) {                               // bands keep the printer buffer happy
+      const rows = Math.min(240, H - top), band = new Uint8Array(8 + bytesPerRow * rows);
+      band.set([0x1d, 0x76, 0x30, 0, bytesPerRow & 255, bytesPerRow >> 8, rows & 255, rows >> 8]);
+      for (let y = 0; y < rows; y++) for (let x = 0; x < W; x++) {
+        const i = ((top + y) * W + x) * 4;
+        if (img[i] < 128) band[8 + y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
+      }
+      parts.push(band);
+    }
+    parts.push(new Uint8Array([0x1b, 0x64, 0x04, 0x1d, 0x56, 0x42, 0x00])); // feed 4 lines, cut
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
   }
 
-  // Resolves with how long print() blocked: a print window keeps it open, silent printing returns at once.
-  function viaBrowser(lines) {
+  async function writeBytes(data) {
+    if (cfg.mode === 'usb') { for (let i = 0; i < data.length; i += 4096) await usbDev.transferOut(epOut, data.slice(i, i + 4096)); return; }
+    const w = port.writable.getWriter();
+    try { for (let i = 0; i < data.length; i += 1024) await w.write(data.slice(i, i + 1024)); } finally { w.releaseLock(); }
+  }
+  async function readByte(timeout) {
+    const t = sleep(timeout).then(() => null);
+    if (cfg.mode === 'usb') {
+      if (!epIn) return null;
+      pendingUsb = pendingUsb || usbDev.transferIn(epIn, 64);
+      const r = await Promise.race([pendingUsb, t]);
+      if (!r) return null;
+      pendingUsb = null;
+      return r.data && r.data.byteLength ? r.data.getUint8(r.data.byteLength - 1) : null;
+    }
+    if (!reader) return null;
+    pendingSerial = pendingSerial || reader.read();
+    const r = await Promise.race([pendingSerial, t]);
+    if (!r) return null;
+    pendingSerial = null;
+    return r.value && r.value.length ? r.value[r.value.length - 1] : null;
+  }
+  // DLE EOT real-time status: online, cover, paper.
+  async function readPaper() {
+    try {
+      const ask = async (n) => { await writeBytes(new Uint8Array([0x10, 0x04, n])); return readByte(900); };
+      const s1 = await ask(1), s2 = await ask(2), s4 = await ask(4);
+      if (s1 === null && s2 === null && s4 === null) return { ok: true, unknown: true, text: 'Connectée (l’imprimante n’envoie pas son état papier)' };
+      if (s2 !== null && s2 & 0x04) return { ok: false, text: 'Capot ouvert : refermez le capot en appuyant fort jusqu’au clic.' };
+      if ((s4 !== null && (s4 & 0x60) === 0x60) || (s2 !== null && s2 & 0x20)) return { ok: false, text: 'Plus de papier : mettez un nouveau rouleau 80 mm.' };
+      if (s1 !== null && s1 & 0x08) return { ok: false, text: 'Imprimante hors ligne : vérifiez le capot et le papier, puis éteignez/rallumez-la.' };
+      if (s4 !== null && (s4 & 0x0c) === 0x0c) return { ok: true, low: true, text: 'Papier bientôt fini : préparez un rouleau de rechange.' };
+      return { ok: true, text: 'Papier OK · capot fermé' };
+    } catch (e) { return { ok: false, text: 'L’imprimante ne répond plus : ' + e.message }; }
+  }
+
+  // ---------- connecting ----------
+  async function openUsb(d) {
+    await d.open();
+    if (!d.configuration) await d.selectConfiguration(1);
+    const itf = d.configuration.interfaces.find((i) => i.alternates[0].endpoints.some((e) => e.direction === 'out' && e.type === 'bulk'));
+    if (!itf) throw Error('Cet appareil n’est pas une imprimante.');
+    const eps = itf.alternates[0].endpoints;
+    await d.claimInterface(itf.interfaceNumber);
+    epOut = eps.find((e) => e.direction === 'out' && e.type === 'bulk').endpointNumber;
+    epIn = (eps.find((e) => e.direction === 'in' && e.type === 'bulk') || {}).endpointNumber || 0;
+    usbDev = d; pendingUsb = null;
+  }
+  async function openSerial(p) {
+    await p.open({ baudRate: 9600 });
+    port = p; reader = p.readable ? p.readable.getReader() : null; pendingSerial = null;
+  }
+  async function closeAll() {
+    try { await reader?.cancel(); reader?.releaseLock(); } catch {}
+    try { await port?.close(); } catch {}
+    try { await usbDev?.close(); } catch {}
+    usbDev = null; port = null; reader = null; pendingUsb = pendingSerial = null; paper = null;
+  }
+  // Reconnect silently to the printer this computer already allowed.
+  async function reconnect() {
+    try {
+      if (cfg.mode === 'usb' && navigator.usb && !usbDev) {
+        const d = (await navigator.usb.getDevices()).find((x) => x.vendorId === cfg.usb?.vendorId && x.productId === cfg.usb?.productId);
+        if (d) await openUsb(d);
+      }
+      if (cfg.mode === 'serial' && navigator.serial && !port) {
+        const ports = await navigator.serial.getPorts();
+        const p = ports.find((x) => { const i = x.getInfo(); return cfg.serial?.usbVendorId ? i.usbVendorId === cfg.serial.usbVendorId : true; });
+        if (p) await openSerial(p);
+      }
+    } catch (e) { lastError = 'Reconnexion impossible : ' + e.message; }
+    if (linked()) paper = await readPaper();
+    render();
+  }
+
+  const nameOfUsb = (d) => [d.manufacturerName, d.productName].filter(Boolean).join(' ') || `USB ${d.vendorId.toString(16)}:${d.productId.toString(16)}`;
+
+  async function connectUsb() {
+    connectHelp = ''; lastError = '';
+    if (!navigator.usb) { connectHelp = 'Ce navigateur ne permet pas la connexion USB directe : ouvrez le site avec Google Chrome.'; render(); return false; }
+    logEvent('connect_usb_click');
+    let d;
+    try { d = await navigator.usb.requestDevice({ filters: [] }); }
+    catch (e) {
+      connectHelp = 'Aucune imprimante choisie dans la liste. Vérifiez que le câble USB est branché et que l’imprimante est allumée, puis recommencez. Si elle n’apparaît toujours pas, utilisez le Bluetooth (étape 5 plus bas).';
+      logEvent('connect_usb_cancel', e.message); render(); return false;
+    }
+    try {
+      await closeAll();
+      await openUsb(d);
+      cfg = { ...cfg, mode: 'usb', usb: { vendorId: d.vendorId, productId: d.productId }, printerName: nameOfUsb(d), confirmedAt: undefined, silent: undefined };
+      saveCfg(); needBaseline = true;
+      logEvent('connect_usb_ok', cfg.printerName);
+      await afterConnect();
+      return true;
+    } catch (e) {
+      usbDev = null;
+      const busy = /access denied|claim|SecurityError|NetworkError/i.test(e.name + ' ' + e.message);
+      connectHelp = busy
+        ? 'L’ordinateur garde l’imprimante pour lui (pilote installé), donc le site ne peut pas l’utiliser en USB direct. Pas de souci : connectez-la en Bluetooth (étape 5 plus bas) ou utilisez le pilote de l’ordinateur (étape 6).'
+        : 'Connexion USB impossible : ' + e.message;
+      logEvent('connect_usb_fail', `${nameOfUsb(d)} · ${e.name}: ${e.message}`); render(); return false;
+    }
+  }
+
+  async function connectSerial() {
+    connectHelp = ''; lastError = '';
+    if (!navigator.serial) { connectHelp = 'Ce navigateur ne permet pas le Bluetooth vers l’imprimante : ouvrez le site avec Google Chrome sur ordinateur.'; render(); return false; }
+    logEvent('connect_bt_click');
+    let p;
+    try { p = await navigator.serial.requestPort(); }
+    catch (e) {
+      connectHelp = isWindows
+        ? 'Aucun port choisi. L’imprimante doit d’abord être appairée dans Windows : Paramètres → Bluetooth et appareils → Ajouter un appareil → Bluetooth → choisir l’imprimante (code 0000 ou 1234). Puis recommencez et choisissez le port « COM » de l’imprimante.'
+        : 'Aucun port choisi. Appairez d’abord l’imprimante dans Réglages Système → Bluetooth, puis recommencez.';
+      logEvent('connect_bt_cancel', e.message); render(); return false;
+    }
+    try {
+      await closeAll();
+      await openSerial(p);
+      const info = p.getInfo();
+      cfg = { ...cfg, mode: 'serial', serial: { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId }, printerName: info.usbVendorId ? `Port série USB ${info.usbVendorId.toString(16)}:${(info.usbProductId || 0).toString(16)}` : 'Imprimante Bluetooth', confirmedAt: undefined, silent: undefined };
+      saveCfg(); needBaseline = true;
+      logEvent('connect_bt_ok', cfg.printerName);
+      await afterConnect();
+      return true;
+    } catch (e) {
+      port = null;
+      connectHelp = /in use|already open|Failed to open/i.test(e.message)
+        ? 'Ce port est déjà utilisé par un autre programme : fermez les autres logiciels de caisse, éteignez/rallumez l’imprimante et réessayez.'
+        : 'Connexion Bluetooth impossible : ' + e.message + '. Vérifiez que l’imprimante est allumée et proche de l’ordinateur.';
+      logEvent('connect_bt_fail', `${e.name}: ${e.message}`); render(); return false;
+    }
+  }
+
+  async function useDriver() {
+    connectHelp = ''; lastError = '';
+    await closeAll();
+    cfg = { ...cfg, mode: 'browser', printerName: 'Imprimante par défaut de l’ordinateur', confirmedAt: undefined, silent: undefined };
+    saveCfg(); needBaseline = true;
+    logEvent('connect_driver');
+    await afterConnect();
+  }
+
+  // The big button: USB direct (the simplest). Its failure message explains the next way to try.
+  const connect = () => connectUsb();
+
+  async function afterConnect() {
+    if (linked()) paper = await readPaper();
+    keepAwake(); render(); report(true);
+    await sync();
+    await test();
+  }
+
+  // ---------- printing through the computer's driver (fallback) ----------
+  function ticketHtml(lines) {
+    return `<!doctype html><meta charset="utf-8"><style>@page{margin:0}html,body{margin:0}body{font:13px/1.3 Arial,sans-serif;width:72mm;padding:2mm 4mm;box-sizing:content-box;color:#000}.c{text-align:center}.b{font-weight:700}.g{font-size:18px}.t{font-size:26px;font-weight:700}.r{display:flex;justify-content:space-between;gap:10px}hr{border:0;border-top:1px solid #000}p{margin:2px 0;overflow-wrap:anywhere}.i{background:#000;color:#fff;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style>`
+      + lines.map((l) => l.rule ? '<hr>' : `<p class="${l.center ? 'c ' : ''}${l.bold ? 'b ' : ''}${l.size === 'big' ? 'g ' : ''}${l.size === 'title' ? 't ' : ''}${l.invert ? 'i ' : ''}${'left' in l ? 'r' : ''}">${'left' in l ? `<span>${h(l.left)}</span><span>${h(l.right)}</span>` : h(l.t)}</p>`).join('');
+  }
+  // Page = exactly the ticket (80 mm wide, as long as needed). Resolves with how long print() blocked:
+  // a print window keeps it open; silent kiosk printing returns at once.
+  function viaDriver(lines) {
     return new Promise((resolve) => {
       const f = document.createElement('iframe');
-      f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+      f.style.cssText = 'position:fixed;left:-9999px;top:0;width:80mm;height:10px;border:0';
       f.srcdoc = ticketHtml(lines);
       f.onload = () => {
+        const doc = f.contentDocument, mm = Math.ceil(doc.documentElement.scrollHeight * 25.4 / 96) + 6;
+        const st = doc.createElement('style'); st.textContent = `@page{size:80mm ${mm}mm;margin:0}`; doc.head.append(st);
         const t0 = performance.now();
         f.contentWindow.focus();
         f.contentWindow.print();
@@ -129,77 +347,15 @@ window.KCP = (() => {
     });
   }
 
-  // ---------- printing straight to a Brother QL over USB ----------
-  function raster(canvas, mm) {
-    const [W, margin] = ROLLS[mm], hgt = canvas.height, img = canvas.getContext('2d').getImageData(0, 0, W, hgt).data, start = 720 - W - margin;
-    const head = [...new Array(200).fill(0), 0x1b, 0x40, 0x1b, 0x69, 0x7a, 0xce, 0x0a, mm, 0, hgt & 255, hgt >> 8 & 255, hgt >> 16 & 255, hgt >>> 24, 0, 0, 0x1b, 0x69, 0x4d, 0x40, 0x1b, 0x69, 0x41, 1, 0x1b, 0x69, 0x4b, 0x08, 0x1b, 0x69, 0x64, 35, 0];
-    const out = new Uint8Array(head.length + hgt * 93 + 1);
-    out.set(head);
-    let p = head.length;
-    for (let y = 0; y < hgt; y++) {
-      out.set([0x67, 0, 90], p); p += 3;
-      for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; if (img[i] < 128) { const bit = 719 - (start + x); out[p + (bit >> 3)] |= 0x80 >> (bit & 7); } }
-      p += 90;
-    }
-    out[p] = 0x1a;
-    return out;
+  async function send(lines) {
+    if (cfg.mode === 'browser') return viaDriver(lines);
+    if (!linked()) await reconnect();
+    if (!linked()) throw Error('Imprimante déconnectée : rebranchez-la, allumez-la, puis cliquez sur « Revérifier ».');
+    paper = await readPaper();
+    if (!paper.ok) throw Error(paper.text);
+    await writeBytes(escpos(draw(lines)));
+    return 0;
   }
-  async function write(data) { for (let i = 0; i < data.length; i += 4096) await device.transferOut(epOut, data.slice(i, i + 4096)); }
-  async function readStatus() {
-    await write(new Uint8Array([...new Array(200).fill(0), 0x1b, 0x40, 0x1b, 0x69, 0x53]));
-    const end = Date.now() + 2500;
-    while (Date.now() < end) {
-      pendingIn = pendingIn || device.transferIn(epIn, 32);
-      const r = await Promise.race([pendingIn, sleep(300).then(() => null)]);
-      if (!r) continue;
-      pendingIn = null;
-      if (r.data && r.data.byteLength >= 32) { const b = new Uint8Array(r.data.buffer, r.data.byteOffset, 32); if (b[18] === 0) return b; } else await sleep(100);
-    }
-    return null;
-  }
-  function checkStatus(b) {
-    if (!b) throw Error('L’imprimante ne répond pas. Vérifiez qu’elle est allumée.');
-    if (b[8] & 1 || b[9] & 1) throw Error('Aucun rouleau détecté.');
-    if (b[8] & 2) throw Error('Rouleau terminé : remplacez le rouleau.');
-    if (b[8] & 4) throw Error('Massicot bloqué.');
-    if (b[9] & 0x10) throw Error('Capot ouvert : refermez le capot.');
-    if (b[8] || b[9]) throw Error('Imprimante en erreur : éteignez-la puis rallumez-la.');
-    if (b[11] === 0x0b) throw Error('Rouleau d’étiquettes prédécoupées : choisissez plutôt « Imprimante de l’ordinateur ».');
-    if (!ROLLS[b[10]]) throw Error('Largeur de rouleau non prise en charge.');
-    if (cfg.mm !== b[10]) { cfg.mm = b[10]; saveCfg(); }
-  }
-  async function probeUsb() {
-    if (!device) { usbState = null; return; }
-    try { checkStatus(await readStatus()); usbState = { ok: true, text: `Brother détectée · rouleau ${cfg.mm || 62} mm · prête` }; }
-    catch (e) { usbState = { ok: false, text: e.message }; }
-  }
-  async function viaUsb(lines) {
-    checkStatus(await readStatus());
-    const mm = cfg.mm || 62;
-    await write(raster(draw(lines, ROLLS[mm][0]), mm));
-    await sleep(1500);
-    usbState = { ok: true, text: `Brother détectée · rouleau ${mm} mm · prête` };
-  }
-  async function attach(d) {
-    await d.open();
-    if (!d.configuration) await d.selectConfiguration(1);
-    const itf = d.configuration.interfaces.find((i) => i.alternates[0].endpoints.some((e) => e.direction === 'out' && e.type === 'bulk'));
-    if (!itf) throw Error('Désactivez le mode Editor Lite (voyant vert éteint).');
-    const eps = itf.alternates[0].endpoints;
-    await d.claimInterface(itf.interfaceNumber);
-    epOut = eps.find((e) => e.direction === 'out' && e.type === 'bulk').endpointNumber;
-    epIn = (eps.find((e) => e.direction === 'in' && e.type === 'bulk') || {}).endpointNumber;
-    device = d; pendingIn = null;
-  }
-  async function reattach() {
-    if (cfg.mode !== 'usb' || !navigator.usb) return;
-    device = null; pendingIn = null;
-    const d = (await navigator.usb.getDevices()).find((x) => x.vendorId === cfg.vendorId && x.productId === cfg.productId);
-    if (d) try { await attach(d); } catch { device = null; }
-    await probeUsb();
-  }
-
-  const send = (lines) => (cfg.mode === 'usb' ? viaUsb(lines) : viaBrowser(lines));
 
   // ---------- new-order sound ----------
   function chime() {
@@ -224,40 +380,47 @@ window.KCP = (() => {
     render();
   }
 
-  // ---------- guided connection: each step is checked live, the first one not done is "next" ----------
-  // Each step: { ok, warn?, label, text, action?: [buttonLabel, handlerName] }
+  // ---------- guided steps: each checked live; the first one not done is "next" ----------
+  // { ok, warn?, label, text, action?: [buttonLabel, actionName] }
   function steps() {
     const live = window.kcLastLoad && Date.now() - window.kcLastLoad < 60000;
     const S = [];
     S.push(isChromium()
       ? { ok: true, label: 'Navigateur compatible', text: 'Google Chrome / Microsoft Edge' }
-      : { ok: false, label: 'Navigateur compatible', text: 'Ouvrez cette page avec Google Chrome (ou Microsoft Edge).' });
+      : { ok: false, label: 'Navigateur compatible', text: 'Ouvrez ce site avec Google Chrome.' });
     S.push(live
       ? { ok: true, label: 'Commandes reçues en direct', text: 'Connecté · nouvelle vérification toutes les 15 secondes' }
-      : { ok: false, label: 'Commandes reçues en direct', text: 'Pas de connexion récente : vérifiez internet.', action: ['Actualiser', 'recheck'] });
-    if (cfg.mode === 'usb') {
-      S.push(device && usbState?.ok
-        ? { ok: true, label: 'Imprimante connectée (USB direct)', text: usbState.text }
-        : { ok: false, label: 'Imprimante connectée (USB direct)', text: device ? usbState?.text || 'Lecture de l’état…' : 'Imprimante débranchée ou éteinte : rebranchez-la, allumez-la.', action: ['Revérifier', 'recheck'] });
+      : { ok: false, label: 'Commandes reçues en direct', text: 'Pas de connexion récente : vérifiez internet.', action: ['Revérifier', 'recheck'] });
+
+    if (!cfg.mode) {
+      S.push({ ok: false, label: 'Imprimante connectée au site', text: connectHelp || 'Imprimante branchée et allumée ? Cliquez sur « Connecter l’imprimante ».', action: ['Connecter l’imprimante', 'connect'] });
+    } else if (cfg.mode === 'browser') {
+      S.push({ ok: true, label: 'Imprimante connectée au site', text: 'Par le pilote de l’ordinateur (imprimante par défaut)' });
     } else {
-      S.push(cfg.mode
-        ? { ok: true, label: 'Imprimante choisie', text: 'Imprimante de l’ordinateur (celle définie par défaut dans Windows)' }
-        : { ok: false, label: 'Imprimante choisie', text: 'Branchez et allumez l’imprimante, puis connectez-la au site.', action: ['Connecter l’imprimante de l’ordinateur', 'chooseBrowser'] });
+      const how = cfg.mode === 'usb' ? 'USB' : 'Bluetooth';
+      S.push(linked()
+        ? { ok: true, label: 'Imprimante connectée au site', text: `En ${how} · ${cfg.printerName || 'imprimante'}` }
+        : { ok: false, label: 'Imprimante connectée au site', text: `Connexion ${how} perdue : vérifiez câble/alimentation, allumez l’imprimante, puis Revérifier.`, action: ['Revérifier', 'recheck'] });
+      S.push(!linked() || !paper
+        ? { ok: false, label: 'Papier et capot', text: 'En attente de l’imprimante…' }
+        : paper.ok
+          ? { ok: true, warn: !!(paper.low || paper.unknown), label: 'Papier et capot', text: paper.text }
+          : { ok: false, label: 'Papier et capot', text: paper.text, action: ['Revérifier', 'recheck'] });
     }
     S.push(cfg.confirmedAt
       ? { ok: true, label: 'Ticket test sorti', text: `Confirmé le ${clock(cfg.confirmedAt)}` }
-      : { ok: false, label: 'Ticket test sorti', text: 'Imprimez un ticket test et confirmez qu’il est bien sorti.', action: ['Imprimer un ticket test', 'test'] });
-    if (cfg.mode !== 'usb') {
+      : { ok: false, label: 'Ticket test sorti', text: 'Imprimez un ticket test et dites s’il est bien sorti.', action: cfg.mode ? ['Imprimer un ticket test', 'test'] : null });
+    if (cfg.mode === 'browser') {
       S.push(cfg.silent === true
         ? { ok: true, label: 'Impression sans fenêtre', text: 'Les tickets sortent tout seuls, personne n’a besoin de cliquer.' }
-        : { ok: false, label: 'Impression sans fenêtre', text: cfg.silent === false ? 'Une fenêtre d’impression s’ouvre encore : ouvrez l’admin avec le raccourci « Kay Charly Caisse », puis refaites le ticket test.' : 'Vérifiée automatiquement pendant le ticket test.', action: cfg.silent === false ? ['Voir comment faire', 'showSteps'] : null });
+        : { ok: false, label: 'Impression sans fenêtre', text: cfg.silent === false ? 'Une fenêtre d’impression s’ouvre encore : ouvrez l’admin avec le raccourci « Kay Charly Caisse » (étape 6 plus bas), puis refaites le ticket test.' : 'Vérifiée automatiquement pendant le ticket test.', action: cfg.silent === false ? ['Voir comment faire', 'showSteps'] : null });
     }
     S.push(wakeLock
       ? { ok: true, label: 'Écran toujours allumé', text: 'L’écran reste allumé tant que cette page est ouverte.' }
       : { ok: false, warn: true, label: 'Écran toujours allumé', text: document.hidden ? 'Page cachée : gardez cet onglet devant les autres fenêtres.' : 'Réglez la mise en veille de l’ordinateur sur « Jamais ».' });
     S.push({ ok: cfg.sound, warn: !cfg.sound, label: 'Son des nouvelles commandes', text: cfg.sound ? 'Activé' : 'Coupé', action: cfg.sound ? null : ['Activer le son', 'toggleSound'] });
     S.push(lastError
-      ? { ok: false, label: 'Impression des commandes', text: lastError }
+      ? { ok: false, label: 'Impression des commandes', text: lastError, action: ['Réessayer', 'recheck'] }
       : cfg.lastPrint
         ? { ok: true, label: 'Impression des commandes', text: `Dernier ticket : ${cfg.lastPrint.ref} à ${clock(cfg.lastPrint.at)}` }
         : { ok: true, warn: true, label: 'Impression des commandes', text: 'En attente de la prochaine commande.' });
@@ -277,13 +440,40 @@ window.KCP = (() => {
     list.innerHTML = all.map((s, i) => `<li class="${s.ok && !s.warn ? 'ok' : s.ok || s.warn ? 'warn' : 'ko'}${s === next ? ' next' : ''}"><span>${s.ok && !s.warn ? '✓' : i + 1}</span><div><b>${h(s.label)}</b><small>${h(s.text)}</small>${s.action ? `<button type="button" class="${s === next ? '' : 'secondary '}small" data-step="${s.action[1]}">${h(s.action[0])}</button>` : ''}</div></li>`).join('');
     $('printerNext').innerHTML = ready
       ? '<b>✓ Tout est prêt.</b> Laissez cette page ouverte : les commandes s’impriment toutes seules.'
-      : `<b>Prochaine étape :</b> ${h(next.label)} — ${h(next.text)}`;
+      : `<b>À faire maintenant :</b> ${h(next.label)} — ${h(next.text)}`;
     $('printerNext').dataset.state = ready ? 'on' : 'off';
-    $('printerMode').textContent = cfg.mode === 'usb' ? 'USB direct (Brother)' : cfg.mode === 'browser' ? 'Imprimante de l’ordinateur' : 'Aucune';
+    $('printerMode').textContent = cfg.mode ? `${cfg.mode === 'usb' ? 'USB' : cfg.mode === 'serial' ? 'Bluetooth' : 'Pilote de l’ordinateur'} · ${cfg.printerName || ''}` : 'Aucune';
     $('printerSound').textContent = cfg.sound ? '🔔 Son : activé' : '🔕 Son : coupé';
+    $('printerConnect').textContent = linked() ? '🔄 Reconnecter l’imprimante (USB)' : '🖨️ Connecter l’imprimante';
+    $('printerConnect').classList.toggle('secondary', ready);
     $('printerOff').hidden = !cfg.mode;
     $('printerTest').disabled = !cfg.mode;
-    $('stepsWin').hidden = !isWindows; $('stepsMac').hidden = isWindows;
+    if (document.activeElement !== $('deviceName')) $('deviceName').value = cfg.name;
+    $('stepsWin').hidden = isMac; $('stepsMac').hidden = !isMac;
+    report();
+  }
+
+  // ---------- remote follow-up: every computer's printer, seen from any admin ----------
+  const EVENT_LABELS = { connect_usb_click: 'Clic sur « Connecter » (USB)', connect_usb_ok: 'Connectée en USB', connect_usb_cancel: 'Liste USB fermée sans choisir', connect_usb_fail: 'Échec de connexion USB', connect_bt_click: 'Clic sur « Bluetooth »', connect_bt_ok: 'Connectée en Bluetooth', connect_bt_cancel: 'Liste Bluetooth fermée sans choisir', connect_bt_fail: 'Échec Bluetooth', connect_driver: 'Pilote de l’ordinateur choisi', test_print: 'Ticket test envoyé', test_yes: 'Ticket test confirmé ✓', test_no: 'Ticket test PAS sorti', test_fail: 'Ticket test impossible', print_ok: 'Commande imprimée', print_fail: 'Échec d’impression', disconnect: 'Impression arrêtée', page_open: 'Admin ouvert' };
+  async function loadRemote() {
+    if (!loggedIn() || $('printer')?.hidden) return;
+    try {
+      const [rows, events] = await Promise.all([
+        api('/rest/v1/kc_printer_status?select=*&order=updated_at.desc&limit=10'),
+        api('/rest/v1/kc_printer_events?select=*&order=created_at.desc&limit=15'),
+      ]);
+      const names = Object.fromEntries(rows.map((r) => [r.device_id, r.device_name]));
+      $('remoteList').innerHTML = rows.map((r) => {
+        const fresh = Date.now() - new Date(r.updated_at) < 3 * 60000;
+        const state = r.ready && fresh ? 'ok' : !fresh ? 'warn' : 'ko';
+        return `<li class="${state}"><span>${r.ready && fresh ? '✓' : !fresh ? '…' : r.stuck_step || '!'}</span><div><b>${h(r.device_name || 'Ordinateur')}${r.device_id === deviceId ? ' (cet ordinateur)' : ''}</b>`
+          + `<small>${fresh ? 'En ligne' : 'Page fermée ou hors ligne'} · vu ${ago(r.updated_at)}${r.mode ? ' · ' + h({ usb: 'USB', serial: 'Bluetooth', browser: 'Pilote' }[r.mode]) : ''}${r.printer_name ? ' · ' + h(r.printer_name) : ''}</small>`
+          + `<small>${r.ready ? 'Prêt : impression automatique active.' : r.stuck_step ? `Bloqué à l’étape ${r.stuck_step} : ${h(r.stuck_label)}` : 'Pas encore configuré.'}</small>`
+          + (r.last_print_ref ? `<small>Dernier ticket : ${h(r.last_print_ref)} · ${clock(r.last_print_at)}</small>` : '')
+          + (r.last_error ? `<small class="err">Erreur : ${h(r.last_error)}</small>` : '') + '</div></li>';
+      }).join('') || '<li class="warn"><span>…</span><div><b>Aucun ordinateur pour l’instant</b><small>L’état apparaît ici dès que l’admin est ouvert sur l’ordinateur du restaurant.</small></div></li>';
+      $('remoteEvents').innerHTML = events.map((e) => `<li><time>${clock(e.created_at)}</time> <b>${h(names[e.device_id] || 'Ordinateur')}</b> · ${h(EVENT_LABELS[e.event] || e.event)}${e.detail ? ` <small>${h(e.detail)}</small>` : ''}</li>`).join('') || '<li>Aucun événement.</li>';
+    } catch (e) { $('remoteList').innerHTML = `<li class="warn"><span>!</span><div><b>Suivi indisponible</b><small>${h(e.message)}</small></div></li>`; }
   }
 
   // ---------- printing new orders ----------
@@ -297,10 +487,12 @@ window.KCP = (() => {
     for (const o of todo) {
       try {
         await send(ticket(o));
-        done[o.id] = Date.now(); saveDone(done); lastError = ''; cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg();
+        done[o.id] = Date.now(); saveDone(done); lastError = '';
+        cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg();
+        logEvent('print_ok', o.reference);
       } catch (e) {
-        if (['NetworkError', 'InvalidStateError', 'NotFoundError'].includes(e.name)) await reattach();
         lastError = `${o.reference} : ${e.message} Nouvel essai automatique dans 15 secondes.`;
+        logEvent('print_fail', `${o.reference} · ${e.message}`);
         break;
       } finally { renderOrders(); render(); }
     }
@@ -319,9 +511,11 @@ window.KCP = (() => {
   async function printOne(id) {
     const o = orders.find((x) => String(x.id) === String(id));
     if (!o) return;
-    if (!active()) { KCReceipt.show(o, true); return; }   // no printer set up: open the receipt with the print window
-    try { await send(ticket(o)); const done = readDone(); done[o.id] = Date.now(); saveDone(done); lastError = ''; cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg(); }
-    catch (e) { lastError = `${o.reference} : ${e.message}`; }
+    if (!active()) { KCReceipt.show(o, true); return; }   // no printer set up: receipt view with the print window
+    try {
+      await send(ticket(o)); const done = readDone(); done[o.id] = Date.now(); saveDone(done); lastError = '';
+      cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg(); logEvent('print_ok', o.reference + ' (manuel)');
+    } catch (e) { lastError = `${o.reference} : ${e.message}`; logEvent('print_fail', `${o.reference} · ${e.message}`); }
     renderOrders(); render();
   }
 
@@ -331,54 +525,57 @@ window.KCP = (() => {
     return t === undefined && o.status === 'Nouvelle' && active() ? '<span class="print-wait">Impression en attente</span>' : '';
   }
 
-  // ---------- buttons in the tab ----------
-  function chooseBrowser() {
-    cfg = { ...cfg, mode: 'browser', silent: undefined, confirmedAt: undefined };
-    saveCfg(); needBaseline = true; keepAwake(); sync(); test();
-  }
-  async function chooseUsb() {
-    if (!navigator.usb) { lastError = 'Le mode USB direct demande Google Chrome ou Microsoft Edge.'; render(); return; }
-    try {
-      const d = await navigator.usb.requestDevice({ filters: [{ vendorId: BROTHER }] });
-      await attach(d);
-      cfg = { ...cfg, mode: 'usb', vendorId: d.vendorId, productId: d.productId, mm: 62 };
-      saveCfg(); needBaseline = true; await probeUsb(); keepAwake(); sync(); test();
-    } catch (e) {
-      if (e.name === 'NotFoundError') return;  // owner closed the list
-      lastError = e.name === 'SecurityError' || /access denied|claim/i.test(e.message)
-        ? 'Windows utilise déjà le pilote Brother pour cette imprimante : choisissez plutôt « Imprimante de l’ordinateur ».'
-        : 'Connexion USB impossible : ' + e.message;
-      render();
-    }
-  }
+  // ---------- test ticket ----------
   async function test() {
     if (!cfg.mode) return;
     lastError = '';
     $('testAsk').hidden = true;
     try {
-      const blocked = await send(ticket({ ...SAMPLE, created_at: new Date().toISOString() }));
+      const blocked = await send(testTicket());
       if (cfg.mode === 'browser') { cfg.silent = blocked < 1200; saveCfg(); }
+      logEvent('test_print', cfg.mode === 'browser' ? (cfg.silent ? 'sans fenêtre' : 'fenêtre d’impression ouverte') : cfg.printerName);
       $('testAsk').hidden = false;
-    } catch (e) { lastError = 'Test impossible : ' + e.message; }
+      $('testAsk').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) { lastError = 'Ticket test impossible : ' + e.message; logEvent('test_fail', e.message); }
     render();
   }
   function answer(ok) {
     $('testAsk').hidden = true;
-    if (ok) { cfg.confirmedAt = Date.now(); lastError = ''; }
-    else { cfg.confirmedAt = undefined; lastError = 'Le ticket test n’est pas sorti : vérifiez le câble, que l’imprimante est allumée avec du papier, et qu’elle est l’imprimante par défaut (voir Les étapes), puis réessayez.'; }
+    if (ok) { cfg.confirmedAt = Date.now(); lastError = ''; logEvent('test_yes'); }
+    else {
+      cfg.confirmedAt = undefined;
+      lastError = cfg.mode === 'browser'
+        ? 'Le ticket test n’est pas sorti : vérifiez que l’imprimante est allumée, avec du papier, et qu’elle est l’imprimante par défaut de l’ordinateur (étape 6 plus bas).'
+        : 'Le ticket test n’est pas sorti : vérifiez le papier (côté brillant vers l’extérieur), refermez le capot, éteignez/rallumez l’imprimante puis Réessayer.';
+      logEvent('test_no');
+    }
     saveCfg(); render();
   }
-  async function recheck() { if (cfg.mode === 'usb') await reattach(); await window.kcReload?.(); render(); }
+
+  async function recheck() {
+    lastError = '';
+    if (cfg.mode === 'usb' || cfg.mode === 'serial') { if (!linked()) await reconnect(); else paper = await readPaper(); }
+    await window.kcReload?.();
+    render(); report(true); loadRemote();
+  }
   async function turnOff() {
     if (!confirm('Arrêter l’impression automatique sur cet ordinateur ?')) return;
-    try { await device?.close(); } catch {}
-    device = null; usbState = null; cfg = { sound: cfg.sound }; saveCfg(); render(); renderOrders();
+    await closeAll();
+    cfg = { sound: cfg.sound, name: cfg.name }; saveCfg(); logEvent('disconnect');
+    render(); renderOrders(); report(true);
   }
-  function preview() { $('printerPreviewBox').replaceChildren(draw(ticket(SAMPLE), ROLLS[cfg.mm || 62][0])); $('printerPreview').showModal(); }
+  function preview() { $('printerPreviewBox').replaceChildren(draw(testTicket())); $('printerPreview').showModal(); }
 
   function init() {
-    $('printerBrowser').onclick = chooseBrowser;
-    $('printerUsb').onclick = chooseUsb;
+    const actions = {
+      connect, recheck, test,
+      showSteps: () => $('stepsTitle').scrollIntoView({ behavior: 'smooth' }),
+      toggleSound: () => $('printerSound').click(),
+    };
+    $('printerChecks').onclick = (e) => { const b = e.target.closest('[data-step]'); if (b) actions[b.dataset.step]?.(); };
+    $('printerConnect').onclick = connect;
+    $('printerBt').onclick = connectSerial;
+    $('printerDriver').onclick = useDriver;
     $('printerTest').onclick = test;
     $('testYes').onclick = () => answer(true);
     $('testNo').onclick = () => answer(false);
@@ -387,19 +584,22 @@ window.KCP = (() => {
     $('printerShow').onclick = preview;
     $('printerClose').onclick = () => $('printerPreview').close();
     $('printerSound').onclick = () => { cfg.sound = !cfg.sound; saveCfg(); if (cfg.sound) chime(); render(); };
+    $('deviceName').onchange = (e) => { cfg.name = e.target.value.trim().slice(0, 60) || cfg.name; saveCfg(); render(); report(true); };
     $('copyCmd').onclick = () => navigator.clipboard?.writeText($('shortcutCmd').textContent).then(() => { $('copyCmd').textContent = 'Copié ✓'; });
-    const actions = { recheck, chooseBrowser, test, showSteps: () => $('stepsTitle').scrollIntoView({ behavior: 'smooth' }), toggleSound: () => $('printerSound').click() };
-    $('printerChecks').onclick = (e) => { const b = e.target.closest('[data-step]'); if (b) actions[b.dataset.step]?.(); };
     $('printerGo').onclick = () => document.querySelector('[data-tab="printer"]').click();
     document.addEventListener('visibilitychange', () => { keepAwake(); render(); });
-    if (navigator.usb) {
-      navigator.usb.addEventListener('disconnect', (e) => { if (e.device === device) { device = null; pendingIn = null; usbState = null; render(); } });
-      navigator.usb.addEventListener('connect', async () => { await reattach(); render(); sync(); });
-    }
-    setInterval(async () => { if (cfg.mode === 'usb' && device && !running) await probeUsb(); render(); }, 30000);
-    reattach().then(() => { keepAwake(); render(); });
+    navigator.usb?.addEventListener('disconnect', (e) => { if (e.device === usbDev) { usbDev = null; pendingUsb = null; paper = null; logEvent('print_fail', 'Câble USB débranché ou imprimante éteinte'); render(); } });
+    navigator.usb?.addEventListener('connect', () => reconnect().then(sync));
+    navigator.serial?.addEventListener('disconnect', (e) => { if (e.target === port) { port = null; reader = null; paper = null; logEvent('print_fail', 'Bluetooth déconnecté'); render(); } });
+    setInterval(async () => { if (linked() && !running) paper = await readPaper(); render(); }, 30000);
+    setInterval(loadRemote, 20000);
+    reconnect().then(() => { keepAwake(); render(); });
   }
   init();
 
-  return { sync, on: active, badge, printOne, render, _ticket: ticket };
+  // Called by admin.js once the admin is logged in.
+  let opened = false;
+  function onLogin() { if (opened) return; opened = true; logEvent('page_open', `${cfg.name} · ${navigator.userAgent.slice(0, 100)}`); report(true); }
+
+  return { sync, on: active, badge, printOne, render, loadRemote, onLogin, _ticket: ticket, _escpos: escpos, _draw: draw, _testTicket: testTicket };
 })();

@@ -14,3 +14,7 @@
 .printer-preview{border:0;border-radius:10px;padding:18px;max-height:92vh}.printer-preview::backdrop{background:#0008}#printerPreviewBox{background:#fff;box-shadow:0 2px 12px #0004;margin-bottom:14px}#printerPreviewBox canvas{display:block;width:min(360px,80vw);height:auto}
 .print-ok,.print-wait{display:inline-block;margin:6px 0 0;padding:4px 9px;border-radius:20px;font-size:11px;font-weight:700}.print-ok{background:#e3f1e8;color:#1c6b43}.print-wait{background:#fbe6e3;color:#a82c22}
 .next-step{margin:14px 0 0;padding:14px 16px;border-radius:10px;border:2px solid #a82c22;background:#fff}.next-step[data-state=on]{border-color:#1c6b43;background:#e3f1e8}.checks li.next{outline:3px solid var(--gold)}.checks li button{margin-top:8px}
+.connect-box{margin:16px 0;display:grid;gap:8px;justify-items:start}button.big{font-size:20px;padding:16px 28px;min-height:60px;border-radius:12px}
+.device-name{display:grid;gap:6px;margin-top:16px;max-width:360px;font-size:13px}
+.trouble{margin-top:14px}.trouble summary{cursor:pointer;font-weight:700}.trouble li{margin:6px 0}
+.events{list-style:none;padding:0;margin:8px 0 0;font-size:13px;display:grid;gap:4px}.events time{color:#65716a}.events small{color:#65716a}.checks small.err{color:#a82c22}

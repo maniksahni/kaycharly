@@ -38,9 +38,16 @@ If sending fails, the order is still saved and stays visible in the admin.
 
 ## Automatic printing
 
-`admin-print.js` prints each new order on the restaurant computer while the admin is open and logged in, plays a sound, and marks the card "Imprimé à …". Orders that existed before printing was switched on, and orders older than 12 hours, are never printed automatically. The "🖨️ Imprimante" tab is a guided connection: numbered steps checked live (browser, live orders, printer chosen/detected, test ticket confirmed, silent printing, screen, sound, last ticket), the next step highlighted with its button, and the one-time setup instructions.
+Printer: 80 mm thermal receipt printer (ESC/POS, USB + Bluetooth, auto-cutter), 72 mm printable width. Tickets are continuous: as long as the order, then cut.
 
-- **Imprimante de l’ordinateur** (recommended on Windows): prints to the computer's default printer (Brother QL-700); the ticket width follows the paper set in the printer driver. To print without a dialog, open the admin with a Chrome shortcut that adds `--kiosk-printing`; the test ticket detects whether a print window still appears.
-- **USB direct**: Chrome/Edge drive the Brother QL over WebUSB and read its real status (roll, cover, errors). Not available when the Windows Brother driver holds the printer.
+`admin-print.js` prints each new order while the admin is open and logged in, plays a sound, and marks the card "Imprimé à …". Orders that existed before printing was switched on, and orders older than 12 hours, are never printed automatically. The ticket is drawn as an image 576 dots wide (72 mm at 203 dpi) and sent as ESC/POS `GS v 0` bands followed by a cut, so accents and € always print.
 
-The admin keeps polling every 15 seconds from a worker timer so background tabs keep printing; keeping the tab in front is still recommended.
+Connection, chosen in the "🖨️ Imprimante" tab:
+
+- **Connecter l’imprimante** (USB direct, WebUSB): Chrome/Edge talk straight to the printer and read its real-time status (`DLE EOT`: cover, paper, offline). Not possible when the Windows printer driver already holds the device; the page then says so.
+- **Connecter en Bluetooth** (Web Serial): the printer is paired in Windows/macOS and opened as its COM port.
+- **Utiliser le pilote de l’ordinateur**: prints an 80 mm page sized to the ticket through the default printer; needs the Chrome `--kiosk-printing` shortcut to print without a dialog (detected by the test ticket).
+
+The tab is a guided setup: numbered steps checked live, "À faire maintenant" with its button, a test ticket followed by "did it come out?", plain-language steps and troubleshooting.
+
+Remote follow-up: each computer reports its state to `kc_printer_status` (ready, step it is stuck on, printer, last ticket, last error) and its actions to `kc_printer_events` (`supabase/migrations/20261112120000_printer_status.sql`, admins only). The "Suivi à distance" panel shows them to any logged-in admin, so setup problems can be seen from elsewhere.
