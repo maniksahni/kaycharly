@@ -138,8 +138,8 @@ async function menuEmail(when: "demain" | "aujourdhui") {
   const label = when === "demain" ? "Le menu de demain" : "Le menu du jour";
   const photo = (p: string) => !p ? "" : /^https?:\/\//.test(p) ? p : SITE + p.replace(/^\.?\//, "");
   const rows = items.map((i: any) => `<tr>
-      <td style="padding:12px 0;border-bottom:1px solid #e7dfd0;width:74px;vertical-align:top">${photo(i.photo) ? `<img src="${esc(photo(i.photo))}" width="64" height="64" alt="" style="display:block;width:64px;height:64px;border-radius:10px;object-fit:cover">` : `<div style="width:64px;height:64px;border-radius:10px;background:#e9efe7"></div>`}</td>
-      <td style="padding:12px 10px;border-bottom:1px solid #e7dfd0;vertical-align:top"><b style="font-size:17px">${esc(i.name)}</b>${i.description ? `<br><span style="font-size:14px;color:#4d5f56">${esc(i.description)}</span>` : ""}</td>
+      ${photo(i.photo) ? `<td style="padding:12px 0;border-bottom:1px solid #e7dfd0;width:74px;vertical-align:top"><img src="${esc(photo(i.photo))}" width="64" height="64" alt="" style="display:block;width:64px;height:64px;border-radius:10px;object-fit:cover"></td>` : ""}
+      <td ${photo(i.photo) ? "" : 'colspan="2" '}style="padding:12px ${photo(i.photo) ? "10px" : "0"};border-bottom:1px solid #e7dfd0;vertical-align:top"><b style="font-size:17px">${esc(i.name)}</b>${i.description ? `<br><span style="font-size:14px;color:#4d5f56">${esc(i.description)}</span>` : ""}</td>
       <td style="padding:12px 0;border-bottom:1px solid #e7dfd0;vertical-align:top;text-align:right;white-space:nowrap;font-weight:bold;color:#ad5b38">${Number(i.price) > 0 ? euros(i.price) : "Sur appel"}</td></tr>`).join("");
   const body = (token: string) => layout(`<div style="padding:28px 22px 10px;text-align:center">
       <p style="margin:0 0 6px;color:#38715b;font-size:12px;font-weight:bold;letter-spacing:2px">${when === "demain" ? "POUR DEMAIN" : "AUJOURD’HUI"} · ${esc(day.toUpperCase())}</p>
