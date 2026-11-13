@@ -58,7 +58,7 @@ window.KCM = (() => {
     try {
       const rows = await api('/rest/v1/kc_feedback?select=*&order=updated_at.desc&limit=300');
       const byRef = Object.fromEntries((typeof orders !== 'undefined' ? orders : []).map((o) => [o.reference, o]));
-      const asked = (typeof orders !== 'undefined' ? orders : []).filter((o) => o.feedback_token).length;
+      const asked = (typeof orders !== 'undefined' ? orders : []).filter((o) => o.feedback_token && o.status !== 'Annulée').length;   // cancelled test orders do not count
       const avg = rows.length ? rows.reduce((a, r) => a + r.rating, 0) / rows.length : 0;
       const stars = (n) => '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
       el('reviewSummary').innerHTML = rows.length
