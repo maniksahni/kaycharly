@@ -181,6 +181,10 @@ async function runMenu(req: Request, body: any) {
     const [last] = await (await db("kc_mailings?select=created_at,sent,subject&kind=eq.menu&order=created_at.desc&limit=1")).json();
     return json({ subject: mail.subject, html: mail.body(""), recipients: list.map((r) => r.email), last: last || null });
   }
+  if (body.test) {   // "M’envoyer un test": only to the restaurant's own address, not logged as a mailing
+    const ok = await sendEmail(OWNER_EMAIL, { subject: "[TEST] " + mail.subject, html: mail.body(""), text: mail.text });
+    return json({ test: true, to: OWNER_EMAIL, sent: ok ? 1 : 0 });
+  }
   const [recent] = await (await db(`kc_mailings?select=created_at&kind=eq.menu&created_at=gt.${new Date(Date.now() - 3 * 3600000).toISOString()}&limit=1`)).json();
   if (recent && !body.force) return json({ error: "Un menu a déjà été envoyé il y a moins de 3 heures.", recent: recent.created_at }, 409);
   let sent = 0, failed = 0;

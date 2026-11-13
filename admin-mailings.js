@@ -76,5 +76,11 @@ window.KCM = (() => {
   el('mailChangedSend').onclick = openPreview;
   el('mailSend').onclick = () => send(false);
   el('mailCancel').onclick = () => el('mailDialog').close();
+  el('mailTest').onclick = async () => {
+    const b = el('mailTest'); b.disabled = true;
+    try { const r = await call({ action: 'menu', when: when(), test: true }); el('mailWho').insertAdjacentHTML('beforeend', `<br><b>✓ Test envoyé à ${h(r.to)}</b> : regardez votre boîte mail.`); }
+    catch (e) { el('mailWho').insertAdjacentHTML('beforeend', `<br><span class="err">Test impossible : ${h(e.message)}</span>`); }
+    b.disabled = false;
+  };
   return { menuChanged, loadReviews, openPreview };
 })();
