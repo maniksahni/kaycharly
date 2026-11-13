@@ -132,10 +132,12 @@ async function runFeedback() {
 }
 
 // ---------- menu email ----------
-async function menuEmail(when: "demain" | "aujourdhui") {
+// update: a menu was already sent today → "Menu mis à jour". message: optional short note from the owner.
+async function menuEmail(when: "demain" | "aujourdhui", opts: { update?: boolean; message?: string } = {}) {
   const items = await (await db("kc_menu?select=name,description,price,photo&category=eq.Plats%20du%20jour&available=is.true&order=sort_order.asc")).json();
   const day = new Date(Date.now() + (when === "demain" ? 86400000 : 0)).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long" });
-  const label = when === "demain" ? "Le menu de demain" : "Le menu du jour";
+  const label = (opts.update ? "Mise à jour : " : "") + (when === "demain" ? (opts.update ? "le menu de demain" : "Le menu de demain") : (opts.update ? "le menu du jour" : "Le menu du jour"));
+  const note = String(opts.message || "").trim().slice(0, 300);
   const photo = (p: string) => !p ? "" : /^https?:\/\//.test(p) ? p : SITE + p.replace(/^\.?\//, "");
   const rows = items.map((i: any) => `<tr>
       ${photo(i.photo) ? `<td style="padding:12px 0;border-bottom:1px solid #e7dfd0;width:74px;vertical-align:top"><img src="${esc(photo(i.photo))}" width="64" height="64" alt="" style="display:block;width:64px;height:64px;border-radius:10px;object-fit:cover"></td>` : ""}
@@ -144,14 +146,16 @@ async function menuEmail(when: "demain" | "aujourdhui") {
   const body = (token: string) => layout(`<div style="padding:28px 22px 10px;text-align:center">
       <p style="margin:0 0 6px;color:#38715b;font-size:12px;font-weight:bold;letter-spacing:2px">${when === "demain" ? "POUR DEMAIN" : "AUJOURD’HUI"} · ${esc(day.toUpperCase())}</p>
       <h1 style="margin:0 0 8px;font:normal 32px Georgia,serif">${label}</h1>
-      <p style="margin:0 0 6px">Fait maison, cuisine créole. Commandez en ligne en 1 minute.</p></div>
+      <p style="margin:0 0 6px">${opts.update ? "Petit changement : voici le menu à jour." : "Fait maison, cuisine créole. Commandez en ligne en 1 minute."}</p>
+      ${note ? `<div style="margin:14px auto 4px;max-width:480px;padding:14px 16px;background:#fff4d9;border-left:5px solid #f2b53a;border-radius:10px;text-align:left;font-size:16px;line-height:1.5"><b>Le mot de Kay Charly :</b><br>${esc(note).replace(/\n/g, "<br>")}</div>` : ""}</div>
     <div style="padding:0 22px"><table role="presentation" style="width:100%;border-collapse:collapse">${rows}</table></div>
     <div style="padding:24px 22px;text-align:center">${button(SITE + "#carte", "Commander maintenant")}
       <div style="margin:22px 0 0;padding:16px;background:#e9efe7;border-radius:12px;font-size:14px;line-height:1.6;text-align:left">
         <b>Livraison gratuite</b> : commandez avant 10h, livré entre 10h et 11h30.<br><span style="color:#4d5f56">${TOWNS}</span><br>
         <b>À emporter</b> : midi 11h30 – 14h tous les jours, soir 18h – 21h du jeudi au samedi.<br>Paiement en espèces à la remise.</div></div>`, token ? unsubscribeLine(token) : "");
   const text = `${label} (${day}) chez Kay Charly\n\n${items.map((i: any) => `• ${i.name} — ${Number(i.price) > 0 ? euros(i.price) : "Sur appel"}`).join("\n")}\n\nCommander : ${SITE}#carte\nLivraison gratuite : commandez avant 10h, livré entre 10h et 11h30.\n${SHOP.phone}`;
-  return { subject: `🍛 ${label} chez Kay Charly · ${day}`, body, text, count: items.length };
+  const text2 = (note ? `Le mot de Kay Charly : ${note}\n\n` : "") + text;
+  return { subject: `${opts.update ? "🔄" : "🍛"} ${label} chez Kay Charly · ${day}`, body, text: text2, count: items.length };
 }
 
 async function recipients() {
@@ -174,19 +178,21 @@ async function isAdmin(req: Request) {
 async function runMenu(req: Request, body: any) {
   if (!(await isAdmin(req))) return json({ error: "Réservé à l’administrateur" }, 401);
   const when = body.when === "aujourdhui" ? "aujourdhui" : "demain";
-  const mail = await menuEmail(when);
+  // Already sent a menu in the last 18 hours → this one is an update.
+  const [last] = await (await db(`kc_mailings?select=created_at,sent,subject&kind=eq.menu&order=created_at.desc&limit=1`)).json();
+  const update = !!last && Date.now() - new Date(last.created_at).getTime() < 18 * 3600000;
+  const mail = await menuEmail(when, { update, message: body.message });
   if (!mail.count) return json({ error: "Aucun plat du jour disponible : activez des plats du jour avant d’envoyer." }, 400);
   const list = await recipients();
   if (body.preview) {
-    const [last] = await (await db("kc_mailings?select=created_at,sent,subject&kind=eq.menu&order=created_at.desc&limit=1")).json();
-    return json({ subject: mail.subject, html: mail.body(""), recipients: list.map((r) => r.email), last: last || null });
+    return json({ subject: mail.subject, html: mail.body(""), recipients: list.map((r) => r.email), last: last || null, update });
   }
   if (body.test) {   // "M’envoyer un test": only to the restaurant's own address, not logged as a mailing
     const ok = await sendEmail(OWNER_EMAIL, { subject: "[TEST] " + mail.subject, html: mail.body(""), text: mail.text });
     return json({ test: true, to: OWNER_EMAIL, sent: ok ? 1 : 0 });
   }
-  const [recent] = await (await db(`kc_mailings?select=created_at&kind=eq.menu&created_at=gt.${new Date(Date.now() - 3 * 3600000).toISOString()}&limit=1`)).json();
-  if (recent && !body.force) return json({ error: "Un menu a déjà été envoyé il y a moins de 3 heures.", recent: recent.created_at }, 409);
+  // Only protects against a double click; a real update can be sent any time.
+  if (last && Date.now() - new Date(last.created_at).getTime() < 2 * 60000 && !body.force) return json({ error: "Ce menu vient d’être envoyé il y a moins de 2 minutes.", recent: last.created_at }, 409);
   let sent = 0, failed = 0;
   for (const r of list) {
     const ok = await sendEmail(r.email, { subject: mail.subject, html: mail.body(r.token), text: mail.text + `\n\nNe plus recevoir ces e-mails : ${SITE}desinscription.html?t=${r.token}` }, `${SITE}desinscription.html?t=${r.token}`);

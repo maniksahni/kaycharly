@@ -8,7 +8,7 @@ window.KCM = (() => {
   const h = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const when = () => el('mailWhen').value;
   const clock = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const call = (body) => api('/functions/v1/customer-mailings', { method: 'POST', body });
+  const call = (body) => api('/functions/v1/customer-mailings', { method: 'POST', body: { message: el('mailMessage').value.trim(), ...body } });
   let preview = null;
 
   async function openPreview() {
@@ -20,9 +20,11 @@ window.KCM = (() => {
       el('mailWho').innerHTML = n
         ? `<b>${n} client${n > 1 ? 's' : ''}</b> recevr${n > 1 ? 'ont' : 'a'} cet e-mail : <span class="muted">${preview.recipients.map(h).join(', ')}</span>`
         : '<b>Aucun client à prévenir pour l’instant</b> (les clients apparaissent ici après leur première commande).';
-      el('mailLast').textContent = preview.last ? `Dernier envoi : ${clock(preview.last.created_at)} (${preview.last.sent} e-mails).` : 'Aucun menu envoyé pour l’instant.';
+      el('mailLast').textContent = preview.update
+        ? `Un menu a déjà été envoyé à ${clock(preview.last.created_at)} : celui-ci partira comme « 🔄 Mise à jour » avec le menu modifié.`
+        : preview.last ? `Dernier envoi : ${clock(preview.last.created_at)} (${preview.last.sent} e-mails).` : 'Aucun menu envoyé pour l’instant.';
       el('mailSend').disabled = !n;
-      el('mailSend').textContent = n ? `📣 Envoyer à ${n} client${n > 1 ? 's' : ''}` : 'Envoyer';
+      el('mailSend').textContent = n ? `${preview.update ? '🔄 Envoyer la mise à jour' : '📣 Envoyer'} à ${n} client${n > 1 ? 's' : ''}` : 'Envoyer';
       el('mailSubject').textContent = preview.subject;
       el('mailDialog').showModal();
       el('mailStatus').textContent = '';
@@ -38,7 +40,7 @@ window.KCM = (() => {
       el('mailStatus').textContent = `✓ Menu envoyé à ${r.sent} client${r.sent > 1 ? 's' : ''}${r.failed ? ` (${r.failed} échec${r.failed > 1 ? 's' : ''})` : ''}.`;
       el('menuChanged').hidden = true;
     } catch (e) {
-      if (/moins de 3 heures/.test(e.message) && confirm('Un menu a déjà été envoyé il y a moins de 3 heures. Envoyer quand même ?')) return send(true);
+      if (/moins de 2 minutes/.test(e.message) && confirm('Ce menu vient d’être envoyé. Le renvoyer quand même ?')) return send(true);
       el('mailStatus').textContent = 'Envoi impossible : ' + e.message;
       btn.disabled = false; btn.textContent = 'Réessayer l’envoi';
     }

@@ -40,3 +40,4 @@
 .review-summary{display:grid;gap:6px;margin:14px 0}.review-summary strong{font:32px Georgia}.review-summary small{color:#3d4a43}.stars{color:#e0a020;letter-spacing:1px}
 .dist{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:center;max-width:360px;font-size:13px}.dist i{display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,#e0a020 var(--w),#eee var(--w))}
 .review{padding:12px 0;border-top:1px solid #e4dac6}.review p{margin:6px 0 0}.review.low{background:#fff7f5}
+.mail-msg{display:grid;gap:6px;margin-top:14px;font-size:13px;max-width:620px}.mail-msg textarea{font:inherit;font-size:15px;padding:10px;border-radius:8px;border:1px solid #cfc5b0}
