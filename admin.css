@@ -41,3 +41,4 @@
 .dist{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:center;max-width:360px;font-size:13px}.dist i{display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,#e0a020 var(--w),#eee var(--w))}
 .review{padding:12px 0;border-top:1px solid #e4dac6}.review p{margin:6px 0 0}.review.low{background:#fff7f5}
 .mail-msg{display:grid;gap:6px;margin-top:14px;font-size:13px;max-width:620px}.mail-msg textarea{font:inherit;font-size:15px;padding:10px;border-radius:8px;border:1px solid #cfc5b0}
+.printer-bar[data-state=info]{border-color:#c9b98f;background:#fff8e9}.phone-link code{display:inline-block;padding:10px 14px;border-radius:8px;background:#f6efe2;font-size:16px;overflow-wrap:anywhere}
