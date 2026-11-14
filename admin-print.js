@@ -351,7 +351,12 @@ window.KCP = (() => {
     if (!navigator.serial) { connectHelp = 'Ce navigateur ne permet pas le Bluetooth vers l’imprimante : ouvrez le site avec Google Chrome sur ordinateur.'; render(); return false; }
     logEvent('connect_bt_click');
     let p;
-    try { p = await navigator.serial.requestPort(); }
+    // The standard Bluetooth serial service (SPP): recent Chrome then lists paired Bluetooth printers
+    // directly, besides the classic "COM" ports. Older Chrome ignores the option.
+    try {
+      try { p = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds: ['00001101-0000-1000-8000-00805f9b34fb'] }); }
+      catch (e) { if (e.name !== 'TypeError') throw e; p = await navigator.serial.requestPort(); }   // option unknown to this Chrome
+    }
     catch (e) {
       markFailed('serial');
       connectHelp = isWindows
