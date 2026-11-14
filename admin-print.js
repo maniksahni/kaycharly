@@ -5,8 +5,10 @@
 // Tickets are continuous: as long as the order needs, then cut.
 //
 // Connected from the restaurant's Android phone only (Chrome). The big button tries, in order:
-//   • ble – Bluetooth (Web Bluetooth, ESC/POS over a writable GATT characteristic), no pairing needed.
-//   • usb – USB cable with a phone adapter (OTG) (WebUSB, ESC/POS). Reads paper/cover status.
+//   • serial – Bluetooth printer paired in the phone's settings, opened through the standard serial
+//              service (Web Serial, ESC/POS). This is how the restaurant's printer works (classic Bluetooth).
+//   • ble    – Bluetooth without pairing (Web Bluetooth, ESC/POS over a writable GATT characteristic).
+//   • usb    – USB cable with a phone adapter (OTG) (WebUSB, ESC/POS). Reads paper/cover status.
 // On a computer the tab only shows the phone's state (remote follow-up) and how to set the phone up.
 //
 // Every state change is reported to Supabase (kc_printer_status + kc_printer_events) so the setup can be
@@ -32,6 +34,7 @@ window.KCP = (() => {
   if (!cfg.name) cfg.name = isPhone ? 'Téléphone Android' : 'Ordinateur';
   if (!isPhone && cfg.mode) cfg = { sound: cfg.sound, name: cfg.name };   // printing from a computer is not used any more
   const saveCfg = () => { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch {} };
+  if (isPhone && cfg.name === 'Ordinateur') { cfg.name = 'Téléphone Android'; saveCfg(); }   // named before phones were told apart
   let deviceId = '';
   try { deviceId = localStorage.getItem(DEV_KEY) || ''; if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem(DEV_KEY, deviceId); } } catch { deviceId = crypto.randomUUID(); }
 
@@ -41,6 +44,7 @@ window.KCP = (() => {
 
   // ---------- live state ----------
   let usbDev = null, epOut = 0, epIn = 0, pendingUsb = null;   // WebUSB
+  let port = null, reader = null, pendingSerial = null;          // Web Serial
   let bleDev = null, bleChar = null;                             // Web Bluetooth
   let paper = null;            // { ok, unknown?, low?, text } from the last ESC/POS status read
   let lastError = '';
@@ -49,18 +53,20 @@ window.KCP = (() => {
   let needBaseline = !!cfg.mode && !cfg.baselined;
   let wakeLock = null;
 
-  const linked = () => (cfg.mode === 'usb' && !!usbDev) || (cfg.mode === 'ble' && !!bleChar);
-  const MODE_NAME = { usb: 'câble USB', ble: 'Bluetooth', serial: 'Bluetooth appairé', browser: 'pilote de l’ordinateur' };   // last two: old rows in the follow-up
+  const linked = () => (cfg.mode === 'usb' && !!usbDev) || (cfg.mode === 'serial' && !!port) || (cfg.mode === 'ble' && !!bleChar);
+  const MODE_NAME = { usb: 'câble USB', ble: 'Bluetooth', serial: 'Bluetooth appairé', browser: 'pilote de l’ordinateur' };   // browser: old rows in the follow-up
 
   // The ladder the big button walks down. A method that failed on this computer is skipped next time.
-  // The ladder the big button walks down: Bluetooth first (no cable), then a USB cable with a phone adapter.
+  // The ladder the big button walks down: paired Bluetooth (works with the restaurant's printer), Bluetooth
+  // without pairing, then a USB cable with a phone adapter.
   const METHODS = [
-    { id: 'ble', ok: () => !!navigator.bluetooth, button: '📶 Connecter l’imprimante (Bluetooth)', hint: 'Imprimante allumée, près du téléphone, Bluetooth du téléphone allumé. Si l’application de l’imprimante est ouverte, fermez-la. Touchez le bouton : une liste s’ouvre, attendez quelques secondes que l’imprimante apparaisse, touchez son nom, puis « Associer ». Si le téléphone demande « Appareils à proximité » ou la position : touchez « Autoriser ».' },
+    { id: 'serial', ok: () => !!navigator.serial, button: '📶 Connecter l’imprimante (Bluetooth)', hint: 'Imprimante allumée, près du téléphone. Elle doit être appairée une fois dans le téléphone : Paramètres → Bluetooth → l’imprimante (code 0000 ou 1234). Si l’application de l’imprimante est ouverte, fermez-la. Touchez le bouton : une liste s’ouvre, touchez le nom de l’imprimante, puis « Connexion ».' },
+    { id: 'ble', ok: () => !!navigator.bluetooth, button: '📶 Connecter en Bluetooth (sans appairage)', hint: 'Imprimante allumée, près du téléphone, Bluetooth du téléphone allumé. Si l’application de l’imprimante est ouverte, fermez-la. Touchez le bouton : une liste s’ouvre, attendez quelques secondes que l’imprimante apparaisse, touchez son nom, puis « Associer ». Si le téléphone demande « Appareils à proximité » ou la position : touchez « Autoriser ».' },
     { id: 'usb', ok: () => !!navigator.usb, button: '🔌 Connecter par câble USB (adaptateur téléphone)', hint: 'Branchez l’imprimante au téléphone avec un câble USB et un adaptateur USB-C (OTG). Touchez le bouton, puis le nom de l’imprimante.' },
   ];
   const failed = () => cfg.failed || [];
-  // Everything tried: back to Bluetooth, with the explanation of what failed.
-  const nextMethod = () => METHODS.find((m) => m.ok() && !failed().includes(m.id)) || METHODS[0];
+  // Everything tried: back to the first method this phone has, with the explanation of what failed.
+  const nextMethod = () => METHODS.find((m) => m.ok() && !failed().includes(m.id)) || METHODS.find((m) => m.ok()) || METHODS[0];
   function markFailed(id) { cfg.failed = [...new Set([...failed(), id])]; saveCfg(); }
   const active = () => linked();
   const loggedIn = () => typeof session !== 'undefined' && !!session;
@@ -76,7 +82,7 @@ window.KCP = (() => {
     const chrome = (navigator.userAgent.match(/(Chrome|Edg)\/(\d+)/) || [])[2] || '';
     return {
       os: isPhone ? 'Android' : navigator.platform || '', browser_version: chrome,
-      usb: !!navigator.usb, bluetooth: !!navigator.bluetooth,
+      usb: !!navigator.usb, bluetooth: !!navigator.bluetooth, serial: !!navigator.serial,
       tried: failed(), next_method: cfg.mode ? null : nextMethod().id, paper: paper?.text || null,
       visible: !document.hidden, screen_awake: !!wakeLock, sound: !!cfg.sound, wizard: WZ.open ? wizardScreen().id : null,
     };
@@ -209,6 +215,8 @@ window.KCP = (() => {
       }
       return;
     }
+    const w = port.writable.getWriter();
+    try { for (let i = 0; i < data.length; i += 1024) await w.write(data.slice(i, i + 1024)); } finally { w.releaseLock(); }
   }
   async function readByte(timeout) {
     const t = sleep(timeout).then(() => null);
@@ -221,7 +229,12 @@ window.KCP = (() => {
       pendingUsb = null;
       return r.data && r.data.byteLength ? r.data.getUint8(r.data.byteLength - 1) : null;
     }
-    return null;
+    if (!reader) return null;
+    pendingSerial = pendingSerial || reader.read();
+    const r = await Promise.race([pendingSerial, t]);
+    if (!r) return null;
+    pendingSerial = null;
+    return r.value && r.value.length ? r.value[r.value.length - 1] : null;
   }
   // DLE EOT real-time status: online, cover, paper.
   async function readPaper() {
@@ -250,6 +263,10 @@ window.KCP = (() => {
     epIn = (eps.find((e) => e.direction === 'in' && e.type === 'bulk') || {}).endpointNumber || 0;
     usbDev = d; pendingUsb = null;
   }
+  async function openSerial(p) {
+    await p.open({ baudRate: 9600 });
+    port = p; reader = p.readable ? p.readable.getReader() : null; pendingSerial = null;
+  }
   // GATT services used by common Bluetooth receipt printers (the page may only open services listed here).
   const BLE_SERVICES = [0x18f0, 0xff00, 0xffe0, 0xfff0, 0xae30, 0xae00, 0xfee7, '49535343-fe7d-4ae5-8fa9-9fafd205e455', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
   async function openBle(d) {
@@ -276,8 +293,10 @@ window.KCP = (() => {
   }
   async function closeAll() {
     try { const d = bleDev; bleDev = null; bleChar = null; d?.gatt?.disconnect(); } catch {}
+    try { await reader?.cancel(); reader?.releaseLock(); } catch {}
+    try { await port?.close(); } catch {}
     try { await usbDev?.close(); } catch {}
-    usbDev = null; pendingUsb = null; paper = null;
+    usbDev = null; port = null; reader = null; pendingUsb = pendingSerial = null; paper = null;
   }
   // Reconnect silently to the printer this phone already allowed.
   async function reconnect() {
@@ -290,6 +309,11 @@ window.KCP = (() => {
         const known = navigator.bluetooth.getDevices ? await navigator.bluetooth.getDevices() : [];
         const d = known.find((x) => x.id === cfg.ble?.id) || bleDev;
         if (d) await openBle(d);
+      }
+      if (cfg.mode === 'serial' && navigator.serial && !port) {
+        const ports = await navigator.serial.getPorts();
+        const p = ports.find((x) => { const i = x.getInfo(); return cfg.serial?.usbVendorId ? i.usbVendorId === cfg.serial.usbVendorId : true; });
+        if (p) await openSerial(p);
       }
     } catch (e) { lastError = 'Reconnexion impossible : ' + e.message; }
     if (linked()) paper = await readPaper();
@@ -327,6 +351,39 @@ window.KCP = (() => {
     }
   }
 
+  async function connectSerial() {
+    connectHelp = ''; lastError = '';
+    if (!navigator.serial) { markFailed('serial'); connectHelp = 'Ce navigateur ne permet pas le Bluetooth appairé : mettez Google Chrome à jour.'; render(); return false; }
+    logEvent('connect_bt_click');
+    let p;
+    // The standard Bluetooth serial service (SPP): Chrome then lists the printers paired in the phone.
+    try {
+      try { p = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds: ['00001101-0000-1000-8000-00805f9b34fb'] }); }
+      catch (e) { if (e.name !== 'TypeError') throw e; p = await navigator.serial.requestPort(); }   // option unknown to this Chrome
+    }
+    catch (e) {
+      markFailed('serial');
+      connectHelp = 'Aucune imprimante choisie. Si elle n’était pas dans la liste : appairez-la d’abord dans Paramètres → Bluetooth du téléphone (code 0000 ou 1234), fermez son application, puis touchez « Recommencer ». Sinon, touchez le bouton vert pour essayer autrement.';
+      logEvent('connect_bt_cancel', e.message); render(); return false;
+    }
+    try {
+      await closeAll();
+      await openSerial(p);
+      const info = p.getInfo();
+      cfg = { ...cfg, mode: 'serial', serial: { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId }, printerName: info.usbVendorId ? `Port série USB ${info.usbVendorId.toString(16)}:${(info.usbProductId || 0).toString(16)}` : 'Imprimante Bluetooth', confirmedAt: undefined };
+      saveCfg(); needBaseline = true;
+      logEvent('connect_bt_ok', cfg.printerName);
+      await afterConnect();
+      return true;
+    } catch (e) {
+      port = null; markFailed('serial');
+      connectHelp = /in use|already open|Failed to open/i.test(e.message)
+        ? 'L’imprimante est déjà utilisée par une autre application : fermez l’application de l’imprimante, éteignez/rallumez l’imprimante et réessayez.'
+        : 'Connexion Bluetooth impossible : ' + e.message + '. Vérifiez que l’imprimante est allumée et près du téléphone.';
+      logEvent('connect_bt_fail', `${e.name}: ${e.message}`); render(); return false;
+    }
+  }
+
   async function connectBle() {
     connectHelp = ''; lastError = '';
     if (!navigator.bluetooth) { markFailed('ble'); connectHelp = 'Ce navigateur ne permet pas le Bluetooth sans fil.'; render(); return false; }
@@ -350,7 +407,7 @@ window.KCP = (() => {
       return true;
     } catch (e) {
       bleDev = null; bleChar = null; markFailed('ble');
-      connectHelp = 'Bluetooth impossible avec cette imprimante (' + e.message + '). Touchez le bouton vert pour essayer le câble USB.';
+      connectHelp = 'Bluetooth impossible avec cette imprimante (' + e.message + '). Touchez le bouton vert pour essayer la méthode suivante.';
       logEvent('connect_ble_fail', `${d.name || ''} · ${e.name}: ${e.message}`); render(); return false;
     }
   }
@@ -358,7 +415,8 @@ window.KCP = (() => {
   // The big button walks down the ladder: each failure on this phone moves it to the next method.
   async function connect() {
     if (!isPhone) return;
-    return nextMethod().id === 'usb' ? connectUsb() : connectBle();
+    const m = nextMethod().id;
+    return m === 'serial' ? connectSerial() : m === 'usb' ? connectUsb() : connectBle();
   }
   function restartLadder() { cfg.failed = []; connectHelp = ''; saveCfg(); render(); logEvent('ladder_reset'); }
 
@@ -481,7 +539,7 @@ window.KCP = (() => {
   }
 
   // ---------- remote follow-up: the phone's printer, seen from any admin ----------
-  const EVENT_LABELS = { wizard_open: 'Assistant ouvert', help_requested: '🆘 AIDE DEMANDÉE', try_other: 'Ticket pas sorti → autre méthode', connect_ble_click: 'Touché « Bluetooth »', connect_ble_ok: 'Connectée en Bluetooth', connect_ble_cancel: 'Liste Bluetooth fermée sans choisir', connect_ble_fail: 'Échec Bluetooth', ladder_reset: 'Recommencer les méthodes', remote_test: 'Ticket test demandé à distance', remote_test_done: 'Ticket test à distance imprimé ✓', remote_test_fail: 'Ticket test à distance impossible', connect_usb_click: 'Clic sur « Connecter » (USB)', connect_usb_ok: 'Connectée en USB', connect_usb_cancel: 'Liste USB fermée sans choisir', connect_usb_fail: 'Échec de connexion USB', test_print: 'Ticket test envoyé', test_yes: 'Ticket test confirmé ✓', test_no: 'Ticket test PAS sorti', test_fail: 'Ticket test impossible', print_ok: 'Commande imprimée', print_fail: 'Échec d’impression', disconnect: 'Impression arrêtée', page_open: 'Admin ouvert' };
+  const EVENT_LABELS = { wizard_open: 'Assistant ouvert', help_requested: '🆘 AIDE DEMANDÉE', try_other: 'Ticket pas sorti → autre méthode', connect_ble_click: 'Touché « Bluetooth sans appairage »', connect_ble_ok: 'Connectée en Bluetooth sans appairage', connect_ble_cancel: 'Liste Bluetooth (sans appairage) fermée sans choisir', connect_ble_fail: 'Échec Bluetooth sans appairage', connect_bt_click: 'Touché « Bluetooth »', connect_bt_ok: 'Connectée en Bluetooth (appairée)', connect_bt_cancel: 'Liste Bluetooth fermée sans choisir', connect_bt_fail: 'Échec Bluetooth (appairée)', ladder_reset: 'Recommencer les méthodes', remote_test: 'Ticket test demandé à distance', remote_test_done: 'Ticket test à distance imprimé ✓', remote_test_fail: 'Ticket test à distance impossible', connect_usb_click: 'Clic sur « Connecter » (USB)', connect_usb_ok: 'Connectée en USB', connect_usb_cancel: 'Liste USB fermée sans choisir', connect_usb_fail: 'Échec de connexion USB', test_print: 'Ticket test envoyé', test_yes: 'Ticket test confirmé ✓', test_no: 'Ticket test PAS sorti', test_fail: 'Ticket test impossible', print_ok: 'Commande imprimée', print_fail: 'Échec d’impression', disconnect: 'Impression arrêtée', page_open: 'Admin ouvert' };
   async function loadRemote() {
     if (!loggedIn() || $('printer')?.hidden) return;
     try {
@@ -499,7 +557,7 @@ window.KCP = (() => {
           + (r.last_print_ref ? `<small>Dernier ticket : ${h(r.last_print_ref)} · ${clock(r.last_print_at)}</small>` : '')
           + (r.last_error ? `<small class="err">Erreur : ${h(r.last_error)}</small>` : '')
           + (r.diag?.wizard ? `<small>Assistant ouvert · écran : ${h(r.diag.wizard)}</small>` : '')
-          + (r.diag && r.diag.os ? `<small>${h(r.diag.os)} · Chrome ${h(r.diag.browser_version || '?')} · USB ${r.diag.usb ? '✓' : '✕'} · Bluetooth ${r.diag.bluetooth ? '✓' : '✕'}${r.diag.tried?.length ? ' · déjà essayé : ' + h(r.diag.tried.map((t) => MODE_NAME[t] || t).join(', ')) : ''}${r.diag.visible === false ? ' · page cachée' : ''}</small>` : '')
+          + (r.diag && r.diag.os ? `<small>${h(r.diag.os)} · Chrome ${h(r.diag.browser_version || '?')} · USB ${r.diag.usb ? '✓' : '✕'} · Bluetooth ${r.diag.bluetooth ? '✓' : '✕'} · appairé ${r.diag.serial ? '✓' : '✕'}${r.diag.tried?.length ? ' · déjà essayé : ' + h(r.diag.tried.map((t) => MODE_NAME[t] || t).join(', ')) : ''}${r.diag.visible === false ? ' · page cachée' : ''}</small>` : '')
           + (fresh && r.mode ? `<button type="button" class="secondary small" data-remote-test="${h(r.device_id)}" data-name="${h(r.device_name)}">Imprimer un ticket test là-bas</button>` : '') + '</div></li>';
       }).join('') || '<li class="warn"><span>…</span><div><b>Aucun téléphone pour l’instant</b><small>L’état apparaît ici dès que l’admin est ouvert sur le téléphone du restaurant.</small></div></li>';
       $('remoteEvents').innerHTML = events.map((e) => `<li><time>${clock(e.created_at)}</time> <b>${h(names[e.device_id] || 'Appareil')}</b> · ${h(EVENT_LABELS[e.event] || e.event)}${e.detail ? ` <small>${h(e.detail)}</small>` : ''}</li>`).join('') || '<li>Aucun événement.</li>';
@@ -749,6 +807,7 @@ window.KCP = (() => {
     };
     $('printerChecks').onclick = (e) => { const b = e.target.closest('[data-step]'); if (b) actions[b.dataset.step]?.(); };
     $('printerConnect').onclick = connect;
+    $('printerBt').onclick = connectSerial;
     $('printerBle').onclick = connectBle;
     $('printerRestart').onclick = restartLadder;
     $('remoteList').onclick = (e) => { const b = e.target.closest('[data-remote-test]'); if (b) { b.disabled = true; askRemoteTest(b.dataset.remoteTest, b.dataset.name); } };
@@ -769,6 +828,7 @@ window.KCP = (() => {
     document.addEventListener('visibilitychange', () => { keepAwake(); render(); if (!document.hidden && cfg.mode && !linked()) reconnect().then(sync); });
     navigator.usb?.addEventListener('disconnect', (e) => { if (e.device === usbDev) { usbDev = null; pendingUsb = null; paper = null; logEvent('print_fail', 'Câble USB débranché ou imprimante éteinte'); render(); } });
     navigator.usb?.addEventListener('connect', () => reconnect().then(sync));
+    navigator.serial?.addEventListener('disconnect', (e) => { if (e.target === port) { port = null; reader = null; paper = null; logEvent('print_fail', 'Bluetooth déconnecté'); render(); } });
     setInterval(async () => { if (linked() && !running) paper = await readPaper(); render(); }, 30000);
     setInterval(loadRemote, 20000);
     setInterval(pollCommands, 20000);

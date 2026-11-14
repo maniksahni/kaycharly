@@ -42,9 +42,10 @@ Printer: 80 mm thermal receipt printer (ESC/POS, USB + Bluetooth, auto-cutter), 
 
 `admin-print.js` prints each new order while the admin is open and logged in, plays a sound, and marks the card "Imprimé à …". Orders that existed before printing was switched on, and orders older than 12 hours, are never printed automatically. The ticket is drawn as an image 576 dots wide (72 mm at 203 dpi) and sent as ESC/POS `GS v 0` bands followed by a cut, so accents and € always print.
 
-Connection is done **from the restaurant's Android phone only** (Chrome on Android). One big button tries Bluetooth, then a USB cable with a phone adapter (OTG); a method that fails on the phone is skipped next time, and a confirmed test ticket resets the ladder:
+Connection is done **from the restaurant's Android phone only** (Chrome on Android). One big button tries paired Bluetooth, then Bluetooth without pairing, then a USB cable with a phone adapter (OTG); a method that fails on the phone is skipped next time, and a confirmed test ticket resets the ladder:
 
-- **Bluetooth** (Web Bluetooth): no pairing needed; ESC/POS sent in 180-byte writes (20 if the printer needs it) to the printer's writable GATT characteristic. Paper status is not readable this way. After the page is reopened Chrome may need one touch on « Reconnecter »; when the page comes back to the front it reconnects by itself if it can.
+- **Bluetooth appairé** (Web Serial over the standard Bluetooth serial service, SPP): the printer is paired once in the phone's Bluetooth settings (code 0000/1234) and listed by Chrome. This is how the restaurant's Tasofac printer connected (Android 10, Chrome 157, 14/11/2026). Reopening the page reconnects by itself.
+- **Bluetooth sans appairage** (Web Bluetooth): for printers that speak Bluetooth Low Energy; ESC/POS sent in 180-byte writes (20 if the printer needs it) to the printer's writable GATT characteristic. Paper status is not readable this way. After the page is reopened Chrome may need one touch on « Reconnecter »; when the page comes back to the front it reconnects by itself if it can.
 - **Câble USB** (WebUSB, with an OTG adapter): reads the real-time status (`DLE EOT`: cover, paper, offline).
 
 While the page is open the screen stays on (Wake Lock). If the owner switches app or locks the phone, Chrome pauses the page; orders that arrived meanwhile print when the page is back.

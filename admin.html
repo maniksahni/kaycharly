@@ -7,7 +7,7 @@
 <div id="testAsk" class="test-ask" hidden><b>Un ticket « IMPRIMANTE CONNECTÉE » est-il sorti de l’imprimante ?</b><div><button type="button" id="testYes">✓ Oui, il est sorti</button><button type="button" class="secondary" id="testNo">✕ Non, rien n’est sorti</button></div></div>
 <ul id="printerChecks" class="checks"></ul>
 <p class="muted">Connexion utilisée : <b id="printerMode">Aucune</b></p>
-<details class="other-ways"><summary>Choisir une méthode précise</summary><div class="printer-actions"><button type="button" class="secondary" id="printerBle">📶 Bluetooth</button></div></details>
+<details class="other-ways"><summary>Choisir une méthode précise</summary><div class="printer-actions"><button type="button" class="secondary" id="printerBt">📶 Bluetooth appairé</button><button type="button" class="secondary" id="printerBle">📶 Bluetooth sans appairage</button></div></details>
 <div class="printer-actions"><button type="button" class="secondary" id="printerTest">Imprimer un ticket test</button><button type="button" class="secondary" id="printerRecheck">Revérifier</button><button type="button" class="secondary" id="printerShow">Voir le ticket</button><button type="button" class="secondary" id="printerSound">🔔 Son : activé</button><button type="button" class="secondary danger" id="printerOff" hidden>Arrêter l’impression automatique</button></div>
 <label class="device-name">Nom de ce téléphone (pour le suivi)<input id="deviceName" maxlength="60" placeholder="Téléphone du restaurant"></label>
 </div>
@@ -15,9 +15,9 @@
 <ol id="stepsPhone" class="steps">
 <li><b>Mettre le papier.</b> Ouvrez le capot de l’imprimante. Posez le rouleau de 80 mm pour que le papier sorte par-dessus, vers vous (côté brillant vers l’extérieur). Laissez dépasser un peu de papier et refermez le capot en appuyant fort jusqu’au « clic ».</li>
 <li><b>Brancher et allumer.</b> Câble d’alimentation de l’imprimante dans la prise, puis l’interrupteur : le voyant s’allume. Pas de câble vers le téléphone.</li>
-<li><b>Fermer l’application de l’imprimante</b> si elle est ouverte sur le téléphone (sinon elle garde l’imprimante pour elle). Allumez le Bluetooth du téléphone.</li>
+<li><b>Appairer l’imprimante une fois</b> : Paramètres du téléphone → Bluetooth → touchez l’imprimante (code 0000 ou 1234 si demandé). Puis <b>fermez l’application de l’imprimante</b> si elle est ouverte (sinon elle garde l’imprimante pour elle).</li>
 <li><b>Ouvrir ce site avec Google Chrome sur le téléphone</b>, se connecter : l’assistant s’ouvre.</li>
-<li><b>Toucher le gros bouton vert.</b> Une liste s’ouvre : touchez le nom de l’imprimante, puis « Associer ». Si le téléphone demande « Appareils à proximité » ou la position : « Autoriser ». Un ticket sort : répondez « Oui, il est sorti ». C’est fini !</li>
+<li><b>Toucher le gros bouton vert.</b> Une liste s’ouvre : touchez le nom de l’imprimante, puis « Connexion » (ou « Associer »). Si le téléphone demande « Appareils à proximité » ou la position : « Autoriser ». Un ticket sort : répondez « Oui, il est sorti ». C’est fini !</li>
 <li><b>Garder la page à portée de main :</b> dans Chrome, menu ⋮ → « Ajouter à l’écran d’accueil ». Ensuite, un seul toucher sur l’icône Kay Charly ouvre la page.</li>
 <li><b>Laisser tourner.</b> Le téléphone reste sur cette page, branché au chargeur, près de l’imprimante. L’écran reste allumé tout seul. Gardez un rouleau de 80 mm de rechange.</li>
 </ol>
