@@ -21,7 +21,7 @@ const SHOP = {
   phoneLink: "+33760629572",
 };
 
-const HOURS_PICKUP = "Retrait en boutique aux horaires d’ouverture : midi 11 h 30 – 14 h tous les jours, soir 18 h – 21 h du jeudi au samedi.";
+const HOURS_PICKUP = "Retrait en boutique aux horaires d’ouverture : midi 11 h 30 – 14 h tous les jours, soir 18 h – 21 h tous les jours.";
 const HOURS_DELIVERY = "Commande avant 10 h : livraison prévue entre 10 h et 11 h 30. Kay Charly organise directement sa tournée.";
 
 type Item = { name: string; quantity: number; price: number };

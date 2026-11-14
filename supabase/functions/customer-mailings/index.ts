@@ -84,13 +84,13 @@ function parisTime(y: number, m: number, d: number, h: number, mi: number) {
 }
 // When the "how was your meal" email is due: 30 minutes after the end of the order's service window.
 //   Delivery: ordered before 10h → delivered 10h–11h30 that day → 12h00; otherwise the next day at 12h00.
-//   Pickup:   lunch 11h30–14h every day → 14h30; evening 18h–21h Thursday–Saturday → 21h30.
+//   Pickup:   lunch 11h30–14h every day → 14h30; evening 18h–21h every day → 21h30.
 export function feedbackDue(order: { pickup: string; created_at: string }) {
   const t = new Date(order.created_at).getTime(), p = parisParts(t), mins = p.h * 60 + p.mi;
   const at = (dayOffset: number, h: number, mi: number) => parisTime(p.y, p.m, p.d + dayOffset, h, mi);
   if (/livraison/i.test(order.pickup || "")) return mins < 600 ? at(0, 12, 0) : at(1, 12, 0);
   if (mins < 840) return at(0, 14, 30);
-  if ([4, 5, 6].includes(p.dow) && mins < 1260) return at(0, 21, 30);
+  if (mins < 1260) return at(0, 21, 30);
   return at(1, 14, 30);
 }
 
@@ -152,7 +152,7 @@ async function menuEmail(when: "demain" | "aujourdhui", opts: { update?: boolean
     <div style="padding:24px 22px;text-align:center">${button(SITE + "#carte", "Commander maintenant")}
       <div style="margin:22px 0 0;padding:16px;background:#e9efe7;border-radius:12px;font-size:14px;line-height:1.6;text-align:left">
         <b>Livraison gratuite</b> : commandez avant 10h, livré entre 10h et 11h30.<br><span style="color:#4d5f56">${TOWNS}</span><br>
-        <b>À emporter</b> : midi 11h30 – 14h tous les jours, soir 18h – 21h du jeudi au samedi.<br>Paiement en espèces à la remise.</div></div>`, token ? unsubscribeLine(token) : "");
+        <b>À emporter</b> : midi 11h30 – 14h tous les jours, soir 18h – 21h tous les jours.<br>Paiement en espèces à la remise.</div></div>`, token ? unsubscribeLine(token) : "");
   const text = `${label} (${day}) chez Kay Charly\n\n${items.map((i: any) => `• ${i.name} — ${Number(i.price) > 0 ? euros(i.price) : "Sur appel"}`).join("\n")}\n\nCommander : ${SITE}#carte\nLivraison gratuite : commandez avant 10h, livré entre 10h et 11h30.\n${SHOP.phone}`;
   const text2 = (note ? `Le mot de Kay Charly : ${note}\n\n` : "") + text;
   return { subject: `${opts.update ? "🔄" : "🍛"} ${label} chez Kay Charly · ${day}`, body, text: text2, count: items.length };
