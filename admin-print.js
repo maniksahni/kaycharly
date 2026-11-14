@@ -23,7 +23,7 @@ window.KCP = (() => {
   const h = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const clock = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const ago = (t) => { const s = Math.round((Date.now() - new Date(t)) / 1000); return s < 60 ? `il y a ${s} s` : s < 3600 ? `il y a ${Math.round(s / 60)} min` : `le ${clock(t)}`; };
-  const isWindows = /Windows/i.test(navigator.userAgent), isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  const isWindows = /Windows/i.test(navigator.userAgent), isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent), isAndroid = /Android/i.test(navigator.userAgent);
   const isChromium = () => (navigator.userAgentData?.brands || []).some((b) => /Chrom|Edge/.test(b.brand)) || (/Chrome\/|Edg\//.test(navigator.userAgent) && !/OPR\/|Firefox\//.test(navigator.userAgent));
 
   // ---------- saved settings (per computer) ----------
@@ -31,7 +31,7 @@ window.KCP = (() => {
   try { cfg = JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch {}
   if (cfg.mode === 'usb' && !cfg.usb) cfg = { sound: cfg.sound };   // old Brother setting: start fresh
   if (cfg.sound === undefined) cfg.sound = true;
-  if (!cfg.name) cfg.name = isWindows ? 'Ordinateur Windows' : isMac ? 'Mac' : 'Ordinateur';
+  if (!cfg.name) cfg.name = isAndroid ? 'Téléphone Android' : isWindows ? 'Ordinateur Windows' : isMac ? 'Mac' : 'Ordinateur';
   const saveCfg = () => { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch {} };
   let deviceId = '';
   try { deviceId = localStorage.getItem(DEV_KEY) || ''; if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem(DEV_KEY, deviceId); } } catch { deviceId = crypto.randomUUID(); }
@@ -55,14 +55,18 @@ window.KCP = (() => {
   const MODE_NAME = { usb: 'câble USB', ble: 'Bluetooth sans fil', serial: 'Bluetooth appairé', browser: 'pilote de l’ordinateur' };
 
   // The ladder the big button walks down. A method that failed on this computer is skipped next time.
-  const METHODS = [
-    { id: 'usb', ok: () => !!navigator.usb, button: '🖨️ Connecter l’imprimante (câble USB)', hint: 'Une liste s’ouvre en haut de l’écran : cliquez sur le nom de l’imprimante (souvent « Printer », « POS-80 » ou « USB Printer »), puis sur « Connexion ».' },
-    { id: 'ble', ok: () => !!navigator.bluetooth, button: '📶 Connecter l’imprimante sans fil (Bluetooth)', hint: 'Imprimante allumée, près de l’ordinateur. Une liste s’ouvre en haut : attendez quelques secondes que l’imprimante apparaisse, cliquez sur son nom, puis sur « Associer ».' },
-    { id: 'serial', ok: () => !!navigator.serial, button: '📶 Connecter l’imprimante Bluetooth appairée', hint: 'D’abord, appairez l’imprimante dans les paramètres Bluetooth de l’ordinateur (étape 5 plus bas). Puis cliquez ici et choisissez la ligne de l’imprimante (avec « COM »).' },
-    { id: 'browser', ok: () => true, button: '🖥️ Utiliser l’imprimante installée sur l’ordinateur', hint: 'Il faut le pilote de l’imprimante installé et l’imprimante par défaut (étape 6 plus bas).' },
+  // On an Android phone: Bluetooth first (no cable), then a USB-OTG cable; the computer driver does not exist there.
+  const BLE_HINT_PHONE = 'Imprimante allumée, près du téléphone, Bluetooth du téléphone allumé. Si l’application de l’imprimante est ouverte, fermez-la. Touchez le bouton : une liste s’ouvre, attendez quelques secondes que l’imprimante apparaisse, touchez son nom, puis « Associer ». Si le téléphone demande « Appareils à proximité » ou la position : touchez « Autoriser ».';
+  const ALL_METHODS = [
+    { id: 'usb', ok: () => !!navigator.usb, button: isAndroid ? '🔌 Connecter par câble USB (adaptateur téléphone)' : '🖨️ Connecter l’imprimante (câble USB)', hint: isAndroid ? 'Branchez l’imprimante au téléphone avec un câble USB et un adaptateur USB-C (OTG). Touchez le bouton, puis le nom de l’imprimante.' : 'Une liste s’ouvre en haut de l’écran : cliquez sur le nom de l’imprimante (souvent « Printer », « POS-80 » ou « USB Printer »), puis sur « Connexion ».' },
+    { id: 'ble', ok: () => !!navigator.bluetooth, button: isAndroid ? '📶 Connecter l’imprimante (Bluetooth)' : '📶 Connecter l’imprimante sans fil (Bluetooth)', hint: isAndroid ? BLE_HINT_PHONE : 'Imprimante allumée, près de l’ordinateur. Une liste s’ouvre en haut : attendez quelques secondes que l’imprimante apparaisse, cliquez sur son nom, puis sur « Associer ».' },
+    { id: 'serial', ok: () => !!navigator.serial, button: '📶 Connecter l’imprimante Bluetooth appairée', hint: isAndroid ? 'D’abord, appairez l’imprimante dans les paramètres Bluetooth du téléphone (code 0000 ou 1234). Puis touchez ici et choisissez l’imprimante.' : 'D’abord, appairez l’imprimante dans les paramètres Bluetooth de l’ordinateur (étape 5 plus bas). Puis cliquez ici et choisissez la ligne de l’imprimante (avec « COM »).' },
+    { id: 'browser', ok: () => !isAndroid, button: '🖥️ Utiliser l’imprimante installée sur l’ordinateur', hint: 'Il faut le pilote de l’imprimante installé et l’imprimante par défaut (étape 6 plus bas).' },
   ];
+  const METHODS = isAndroid ? ['ble', 'usb', 'serial', 'browser'].map((id) => ALL_METHODS.find((m) => m.id === id)) : ALL_METHODS;
   const failed = () => cfg.failed || [];
-  const nextMethod = () => METHODS.find((m) => m.ok() && !failed().includes(m.id)) || METHODS[METHODS.length - 1];
+  // Everything tried: a phone goes back to Bluetooth (with the explanation of what failed), a computer to its driver.
+  const nextMethod = () => METHODS.find((m) => m.ok() && !failed().includes(m.id)) || (isAndroid ? METHODS[0] : METHODS[METHODS.length - 1]);
   function markFailed(id) { cfg.failed = [...new Set([...failed(), id])]; saveCfg(); }
   const active = () => cfg.mode === 'browser' || linked();
   const loggedIn = () => typeof session !== 'undefined' && !!session;
@@ -301,8 +305,9 @@ window.KCP = (() => {
         const d = (await navigator.usb.getDevices()).find((x) => x.vendorId === cfg.usb?.vendorId && x.productId === cfg.usb?.productId);
         if (d) await openUsb(d);
       }
-      if (cfg.mode === 'ble' && navigator.bluetooth?.getDevices && !bleChar) {
-        const d = (await navigator.bluetooth.getDevices()).find((x) => x.id === cfg.ble?.id) || bleDev;
+      if (cfg.mode === 'ble' && navigator.bluetooth && !bleChar) {
+        const known = navigator.bluetooth.getDevices ? await navigator.bluetooth.getDevices() : [];
+        const d = known.find((x) => x.id === cfg.ble?.id) || bleDev;
         if (d) await openBle(d);
       }
       if (cfg.mode === 'serial' && navigator.serial && !port) {
@@ -400,8 +405,8 @@ window.KCP = (() => {
     catch (e) {
       markFailed('ble');
       connectHelp = /globally disabled|adapter|not available/i.test(e.message)
-        ? 'Le Bluetooth de l’ordinateur est éteint ou absent. Allumez-le (Paramètres → Bluetooth) ou cliquez sur le gros bouton pour la méthode suivante.'
-        : 'L’imprimante n’a pas été choisie dans la liste. Cliquez sur le gros bouton pour essayer la méthode suivante.';
+        ? (isAndroid ? 'Le Bluetooth du téléphone est éteint. Glissez le doigt du haut de l’écran vers le bas, touchez l’icône Bluetooth pour l’allumer, puis touchez de nouveau le bouton vert.' : 'Le Bluetooth de l’ordinateur est éteint ou absent. Allumez-le (Paramètres → Bluetooth) ou cliquez sur le gros bouton pour la méthode suivante.')
+        : isAndroid ? 'L’imprimante n’a pas été choisie dans la liste. Vérifiez qu’elle est allumée et que son application est fermée, puis touchez le bouton vert.' : 'L’imprimante n’a pas été choisie dans la liste. Cliquez sur le gros bouton pour essayer la méthode suivante.';
       logEvent('connect_ble_cancel', e.message); render(); return false;
     }
     try {
@@ -538,7 +543,7 @@ window.KCP = (() => {
     }
     S.push(wakeLock
       ? { ok: true, label: 'Écran toujours allumé', text: 'L’écran reste allumé tant que cette page est ouverte.' }
-      : { ok: false, warn: true, label: 'Écran toujours allumé', text: document.hidden ? 'Page cachée : gardez cet onglet devant les autres fenêtres.' : 'Réglez la mise en veille de l’ordinateur sur « Jamais ».' });
+      : { ok: false, warn: true, label: 'Écran toujours allumé', text: document.hidden ? (isAndroid ? 'Page cachée : revenez sur cette page dans Chrome.' : 'Page cachée : gardez cet onglet devant les autres fenêtres.') : isAndroid ? 'Laissez le téléphone sur cette page, branché au chargeur.' : 'Réglez la mise en veille de l’ordinateur sur « Jamais ».' });
     S.push({ ok: cfg.sound, warn: !cfg.sound, label: 'Son des nouvelles commandes', text: cfg.sound ? 'Activé' : 'Coupé', action: cfg.sound ? null : ['Activer le son', 'toggleSound'] });
     S.push(lastError
       ? { ok: false, label: 'Impression des commandes', text: lastError, action: ['Réessayer', 'recheck'] }
@@ -574,7 +579,7 @@ window.KCP = (() => {
     $('printerOff').hidden = !cfg.mode;
     $('printerTest').disabled = !cfg.mode;
     if (document.activeElement !== $('deviceName')) $('deviceName').value = cfg.name;
-    $('stepsWin').hidden = isMac; $('stepsMac').hidden = !isMac;
+    $('stepsWin').hidden = isMac || isAndroid; $('stepsMac').hidden = !isMac;
     if (WZ.open && !WZ.busy) wizardRender();
     report();
   }
@@ -793,7 +798,9 @@ window.KCP = (() => {
     if (WZ.i < 3) return [
       { id: 'hello', title: 'Connectons l’imprimante', text: 'Ça prend deux minutes. Suivez les dessins, une étape à la fois. Vous pouvez appuyer sur « Lire à voix haute » à tout moment.', next: 'Commencer' },
       { id: 'paper', title: 'Mettre le papier', text: 'Ouvrez le capot de l’imprimante. Posez le rouleau pour que le papier sorte par-dessus, vers vous. Laissez dépasser un peu de papier, puis refermez le capot en appuyant fort jusqu’au clic.', next: 'C’est fait' },
-      { id: 'power', title: 'Brancher et allumer', text: 'Branchez le câble électrique dans la prise, et le câble USB dans l’ordinateur. Appuyez sur l’interrupteur de l’imprimante : la petite lumière s’allume.', next: 'C’est fait, la lumière est allumée' },
+      isAndroid
+        ? { id: 'power', title: 'Brancher et allumer', text: 'Branchez le câble électrique de l’imprimante dans la prise et appuyez sur son interrupteur : la petite lumière s’allume. Pas besoin de câble vers le téléphone. Branchez aussi le téléphone à son chargeur.', next: 'C’est fait, la lumière est allumée' }
+        : { id: 'power', title: 'Brancher et allumer', text: 'Branchez le câble électrique dans la prise, et le câble USB dans l’ordinateur. Appuyez sur l’interrupteur de l’imprimante : la petite lumière s’allume.', next: 'C’est fait, la lumière est allumée' },
     ][WZ.i];
     if (!cfg.mode) {
       const m = nextMethod();
@@ -803,10 +810,13 @@ window.KCP = (() => {
     if (cfg.mode === 'browser' && cfg.silent !== true) return { id: 'window', title: 'Dernière petite chose', text: isWindows
       ? 'Pour que les tickets sortent tout seuls (sans fenêtre), téléchargez le lanceur « Kay Charly Caisse » et ouvrez-le. Il ouvre une fenêtre Kay Charly spéciale, se met sur le bureau et s’ouvrira tout seul quand l’ordinateur démarre.'
       : 'Une fenêtre d’impression s’ouvre encore. Il faut ouvrir le site avec impression automatique : cliquez sur « J’ai besoin d’aide », la personne qui s’occupe du site le règle en une minute.' };
-    return { id: 'done', title: 'Bravo, c’est prêt !', text: 'Laissez cette page ouverte. Chaque nouvelle commande s’imprimera toute seule, et un son vous préviendra.', next: 'Terminer' };
+    return { id: 'done', title: 'Bravo, c’est prêt !', text: isAndroid
+      ? 'Laissez le téléphone sur cette page, branché au chargeur : l’écran reste allumé tout seul. Chaque nouvelle commande s’imprimera toute seule, avec un son. Si vous allez dans une autre application, revenez ici : les commandes arrivées entre-temps s’impriment.'
+      : 'Laissez cette page ouverte. Chaque nouvelle commande s’imprimera toute seule, et un son vous préviendra.', next: 'Terminer' };
   }
   const SCREEN_ORDER = ['hello', 'paper', 'power', 'browser', 'connect', 'test', 'window', 'done'];
   ART.browser = ART.connect;
+  if (isAndroid) ART.power = ART.power.replace(/<path d="M70 80[^>]*>/, '').replace(/<rect x="4" y="22"[^>]*>/, '').replace(/<text x="13" y="16"[^<]*<\/text>/, '');
 
   function speak(text) {
     try {
@@ -827,7 +837,7 @@ window.KCP = (() => {
     let act = '';
     if (sc.id === 'connect') {
       const pre = sc.method.id === 'serial'
-        ? `<ol class="wz-steps"><li>Imprimante allumée, près de l’ordinateur.</li><li>Cliquez ici ${settingsLink('bluetooth', 'Ouvrir le Bluetooth de l’ordinateur') || '(Paramètres → Bluetooth)'}</li><li>« Ajouter un appareil » → « Bluetooth » → cliquez sur l’imprimante. Code demandé : <b>0000</b> ou <b>1234</b>.</li><li>Revenez ici et cliquez sur le bouton vert.</li></ol>`
+        ? `<ol class="wz-steps"><li>Imprimante allumée, près ${isAndroid ? 'du téléphone' : 'de l’ordinateur'}.</li><li>${isAndroid ? 'Ouvrez Paramètres → Bluetooth sur le téléphone.' : `Cliquez ici ${settingsLink('bluetooth', 'Ouvrir le Bluetooth de l’ordinateur') || '(Paramètres → Bluetooth)'}`}</li><li>« Ajouter un appareil » → « Bluetooth » → cliquez sur l’imprimante. Code demandé : <b>0000</b> ou <b>1234</b>.</li><li>Revenez ici et cliquez sur le bouton vert.</li></ol>`
         : sc.method.id === 'browser'
           ? `<ol class="wz-steps"><li>Installez le programme (pilote) fourni avec l’imprimante.</li><li>${settingsLink('printers', 'Ouvrir les imprimantes de l’ordinateur') || 'Paramètres → Imprimantes'} → cliquez sur l’imprimante → « Définir par défaut ».</li><li>Revenez ici et cliquez sur le bouton vert.</li></ol>`
           : '';
@@ -929,7 +939,7 @@ window.KCP = (() => {
     $('wizard').onclick = (e) => { const b = e.target.closest('[data-wz]'); if (b && !b.disabled) wizardAction(b.dataset.wz); };
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && WZ.open) closeWizard(); });
     window.addEventListener('hashchange', () => { if (location.hash === '#imprimante' && loggedIn()) openWizard(); });
-    document.addEventListener('visibilitychange', () => { keepAwake(); render(); });
+    document.addEventListener('visibilitychange', () => { keepAwake(); render(); if (!document.hidden && cfg.mode && !linked()) reconnect().then(sync); });
     navigator.usb?.addEventListener('disconnect', (e) => { if (e.device === usbDev) { usbDev = null; pendingUsb = null; paper = null; logEvent('print_fail', 'Câble USB débranché ou imprimante éteinte'); render(); } });
     navigator.usb?.addEventListener('connect', () => reconnect().then(sync));
     navigator.serial?.addEventListener('disconnect', (e) => { if (e.target === port) { port = null; reader = null; paper = null; logEvent('print_fail', 'Bluetooth déconnecté'); render(); } });
