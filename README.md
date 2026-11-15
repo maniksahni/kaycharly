@@ -56,6 +56,11 @@ On a computer the Imprimante tab does not connect anything: it explains that the
 
 Remote follow-up: the phone reports its state to `kc_printer_status` (ready, step it is stuck on, printer, last ticket, last error, `diag`: OS, Chrome version, USB/Bluetooth support, methods tried, page visible) and its actions to `kc_printer_events` (admins only; migrations `20261112120000_printer_status.sql`, `20261112130000_printer_ble_diag.sql`). The "Suivi à distance" panel shows this to any logged-in admin, with a button that asks the phone to print a test ticket (a `remote_test` event it polls every 20 s; a new device never replays old requests).
 
+## Day summary, export and Google Sheet
+
+- **Admin, « Aujourd’hui »**: today's orders by status (à préparer, en préparation, prêtes, remises with livrées / à emporter, annulées), delivery vs take-away, and a 7-day table. **« Exporter les commandes (Excel / CSV) »** downloads every loaded order (semicolon CSV with BOM, opens in Excel/Sheets) — also a manual backup.
+- **Google Sheet** (`google-sheet/KayCharly.gs`): an Apps Script pasted into the owner's Sheet calls `customer-mailings` with `{"action":"sheet"}` and the `x-sheet-token` header (Supabase secret `SHEET_TOKEN`, same value in the script's properties). Every 10 minutes it rewrites three tabs: « Aujourd’hui », « Par jour » (counts + revenue per day) and « Commandes » (one row per order, last 90 days). Read-only.
+
 ## Customer emails (menu du jour, avis)
 
 `supabase/functions/customer-mailings` (Brevo):

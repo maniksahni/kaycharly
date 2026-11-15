@@ -6,9 +6,11 @@
 //   • action "feedback" – called every 10 minutes by pg_cron. 30 minutes after the end of each order's
 //                         service window it sends "Comment était votre repas ?" with 1–5 star links.
 //                         Safe to call by anyone: it only sends emails that are due and not sent yet.
+//   • action "sheet"    – the owner's Google Sheet (google-sheet/KayCharly.gs) fetches the orders every
+//                         10 minutes. Needs the x-sheet-token header = SHEET_TOKEN secret.
 // Single file on purpose, so it can be pasted into the Supabase dashboard editor.
 //
-// Secrets: BREVO_API_KEY (required) · OWNER_EMAIL, SENDER_EMAIL, SITE_ORIGIN (optional)
+// Secrets: BREVO_API_KEY (required) · OWNER_EMAIL, SENDER_EMAIL, SITE_ORIGIN, SHEET_TOKEN (optional)
 // Supabase provides SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
 
 const SITE_ORIGIN = Deno.env.get("SITE_ORIGIN") || "https://maniksahni.github.io";
@@ -18,6 +20,7 @@ const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "kaycharly37@gmail.com";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const BREVO_KEY = Deno.env.get("BREVO_API_KEY") || "";
+const SHEET_TOKEN = Deno.env.get("SHEET_TOKEN") || "";
 
 const SHOP = { name: "Kay Charly", street: "19 rue de la Marivoise", phone: "07 60 62 95 72", phoneLink: "+33760629572" };
 const TOWNS = "Champcueil · Chevannes · Mondeville · Ballancourt · Mennecy · Ormoy · Fontenay-le-Vicomte";
@@ -202,6 +205,26 @@ async function runMenu(req: Request, body: any) {
   return json({ recipients: list.length, sent, failed });
 }
 
+// ---------- Google Sheet export ----------
+// Orders of the last `days` days (max 400), one flat row each, in Paris time. Read-only.
+async function runSheet(req: Request, body: any) {
+  const given = req.headers.get("x-sheet-token") || "";
+  if (!SHEET_TOKEN) return json({ error: "Google Sheet non configuré (secret SHEET_TOKEN manquant)" }, 503);
+  if (given.length !== SHEET_TOKEN.length || !crypto.subtle.timingSafeEqual(new TextEncoder().encode(given), new TextEncoder().encode(SHEET_TOKEN))) return json({ error: "Accès refusé" }, 401);
+  const days = Math.min(400, Math.max(1, Number(body.days) || 90));
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const r = await db(`kc_orders?select=reference,created_at,customer_name,phone,customer_email,pickup,address,items,total,status,note&created_at=gte.${encodeURIComponent(since)}&order=created_at.desc&limit=5000`);
+  if (!r.ok) throw Error("orders " + r.status);
+  const rows = await r.json();
+  const p = (t: string) => { const q = parisParts(new Date(t).getTime()); return { date: `${q.y}-${String(q.m).padStart(2, "0")}-${String(q.d).padStart(2, "0")}`, time: `${String(q.h).padStart(2, "0")}:${String(q.mi).padStart(2, "0")}` }; };
+  return json({ generated_at: new Date().toISOString(), orders: rows.map((o: any) => ({
+    reference: o.reference, ...p(o.created_at), client: o.customer_name, phone: o.phone, email: o.customer_email,
+    mode: /livraison/i.test(o.pickup || "") ? "Livraison" : "À emporter", address: o.address || "",
+    items: (o.items || []).map((i: any) => `${Number(i.quantity)} × ${i.name}`).join(", "),
+    total: Number(o.total) / 100, status: o.status, note: o.note || "",
+  })) });
+}
+
 Deno.serve(async (req) => {
   const origin = req.headers.get("origin");
   if (origin && origin !== SITE_ORIGIN) return json({ error: "Origin not allowed" }, 403);
@@ -213,6 +236,7 @@ Deno.serve(async (req) => {
   try {
     if (body.action === "feedback") return json(await runFeedback());
     if (body.action === "menu") return await runMenu(req, body);
+    if (body.action === "sheet") return await runSheet(req, body);
     return json({ error: "Unknown action" }, 400);
   } catch (e) {
     console.error("customer-mailings failed", String(e));
