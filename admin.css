@@ -55,3 +55,4 @@ nav{overflow-x:auto;scrollbar-width:none}nav button{white-space:nowrap;flex:none
 .cc-done{text-align:center;border-color:var(--ink)}.cc-done h2{margin:8px 0}.cc-done p{font-size:16px}.cc-done .actions{justify-content:center;flex-wrap:wrap;margin-top:16px}
 @media(max-width:640px){.cc-bar{grid-template-columns:1fr auto}.cc-bar #ccSend{grid-column:1/-1}.heading{flex-wrap:wrap}.heading-actions{width:100%}#counterGo{flex:1;font-size:16px;min-height:52px}}
 @media print{.cc-bar,#counter{display:none!important}}
+.rv-paper .cut{margin-top:8mm;border-top:2px dashed #000;padding-top:3mm;break-before:page}

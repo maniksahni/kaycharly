@@ -9,7 +9,9 @@ add(delivery?'LIVRAISON':/à manger sur place/i.test(o.pickup||'')?'SUR PLACE':'
 const counter=/^Commande sur place/.test(o.pickup||'');if(!counter)wrap('Client : '+(o.customer_name||''),W).forEach(x=>add(x,'b'));if(o.phone)add('Tél : '+o.phone);if(delivery&&o.address)wrap('Adresse : '+o.address,W).forEach(x=>add(x));
 wrap(o.pickup||'',W).forEach(x=>add(x));rule();
 for(const i of o.items||[])pair(i.quantity+' x '+i.name,eur(i.price*i.quantity),'b');rule();pair('TOTAL',eur(o.total),'b');if(!counter){add('À régler en espèces','c');add('à la remise','c')}
-if(o.note){rule();add('REMARQUE','b');wrap(o.note,W).forEach(x=>add(x,'b'))}rule();add('Merci et à bientôt !','c');return L}
+if(o.note){rule();add('REMARQUE','b');wrap(o.note,W).forEach(x=>add(x,'b'))}rule();add('Merci et à bientôt !','c');
+if(counter){add('À PRÉPARER','c mid cut');add((/à manger sur place/i.test(o.pickup)?'SUR PLACE':'À EMPORTER')+' · '+o.reference,'c b');rule();for(const i of o.items||[])wrap(i.quantity+' x '+i.name,W).forEach(x=>add(x,'mid'));rule()}   // sur place: kitchen ticket on its own page
+return L}
 let box;function view(){if(box)return box;box=document.createElement('div');box.id='receiptView';box.hidden=true;box.innerHTML='<div class="rv-bar"><button type="button" id="rvPrint">🖨️ Imprimer le reçu</button><button type="button" class="secondary" id="rvClose">Fermer</button></div><div class="rv-paper" id="rvPaper"></div>';document.body.append(box);
 box.querySelector('#rvPrint').onclick=()=>window.print();box.querySelector('#rvClose').onclick=close;return box}
 function close(){if(box)box.hidden=true;document.body.classList.remove('rv-open');if(location.hash.startsWith('#imprimer='))history.replaceState(null,'',location.pathname+location.search)}
