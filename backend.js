@@ -1,6 +1,6 @@
-// The site lives at https://kaycharly.fr. The former addresses (GitHub Pages, Cloudflare Pages) send every
+// The site lives at https://kaycharly.fr. The other addresses (GitHub Pages, Cloudflare Pages, www, workers.dev) send every
 // visitor there, keeping the page, its query (avis / désinscription links in old emails) and #hash.
-(function(){var h=location.hostname;if(h==='maniksahni.github.io'||/(^|\.)kaycharly\.pages\.dev$/.test(h)){location.replace('https://kaycharly.fr'+location.pathname.replace(/^\/kaycharly(\/|$)/,'/')+location.search+location.hash);}})();
+(function(){var h=location.hostname;if(h==='maniksahni.github.io'||h==='www.kaycharly.fr'||/(^|\.)kaycharly\.pages\.dev$|\.workers\.dev$/.test(h)){location.replace('https://kaycharly.fr'+location.pathname.replace(/^\/kaycharly(\/|$)/,'/')+location.search+location.hash);}})();
 // Backend: on Cloudflare (kaycharly.fr, *.workers.dev, local `wrangler dev`) the API is served by the same site
 // (worker/index.js). Elsewhere (GitHub Pages, until the switch) it is the former Supabase project; its
 // publishable key is browser-safe, authorization being enforced by its database RLS.
