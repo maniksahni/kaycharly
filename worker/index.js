@@ -456,8 +456,10 @@ const IMPORT = {
   kc_email_prefs: ['email', 'token', 'unsubscribed_at', 'created_at'],
   kc_feedback: ['order_reference', 'rating', 'comment', 'created_at', 'updated_at'],
   kc_mailings: ['kind', 'subject', 'recipients', 'sent', 'failed', 'created_at'],
+  kc_printer_status: ['device_id', 'device_name', 'platform', 'mode', 'printer_name', 'ready', 'stuck_step', 'stuck_label', 'steps', 'last_print_ref', 'last_print_at', 'last_error', 'diag', 'updated_at'],
+  kc_printer_events: ['id', 'device_id', 'event', 'detail', 'created_at'],
 };
-const TIME_COLS = new Set(['created_at', 'updated_at', 'archived_at', 'feedback_sent_at', 'unsubscribed_at', 'notified_at']);
+const TIME_COLS = new Set(['created_at', 'updated_at', 'archived_at', 'feedback_sent_at', 'unsubscribed_at', 'notified_at', 'last_print_at']);
 const OLD_PHOTOS = 'https://bqtsczpszczikonpdtlo.supabase.co/storage/v1/object/public/menu-photos/';
 async function runImport(env, body) {
   if (body.photo) {
@@ -482,7 +484,7 @@ async function runImport(env, body) {
       return null;
     }
     if (TIME_COLS.has(c)) return new Date(v).toISOString();
-    if (c === 'items') return typeof v === 'string' ? v : JSON.stringify(v);
+    if (c === 'items' || c === 'steps' || c === 'diag') return typeof v === 'string' ? v : JSON.stringify(v);
     if (typeof v === 'boolean') return v ? 1 : 0;
     return v;
   };
