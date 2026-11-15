@@ -532,6 +532,10 @@ export default {
     // Same-origin pages only (no other website may call the API from a browser).
     const origin = req.headers.get('origin');
     if (req.method === 'OPTIONS') return new Response(null, { status: 204 });
+    // One address for everyone (phone permissions and logins are per address): www and workers.dev → kaycharly.fr.
+    if ((url.hostname === 'www.kaycharly.fr' || url.hostname.endsWith('.workers.dev')) && req.method === 'GET' && !/^\/(rest|auth|functions|storage)\/v1\//.test(url.pathname)) {
+      return Response.redirect('https://kaycharly.fr' + url.pathname + url.search, 301);
+    }
     try {
       if (/^\/(rest|auth|functions|storage)\/v1\//.test(url.pathname)) {
         await ensureSchema(env);
