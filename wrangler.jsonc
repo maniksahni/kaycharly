@@ -1,0 +1,27 @@
+// Kay Charly on Cloudflare: one Worker serves the site (repository root) and the API, with a D1 database,
+// a KV namespace for menu photos and a 10-minute cron. Deployed automatically from GitHub (Workers Builds).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kaycharly",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-11-01",
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": ["/rest/*", "/auth/*", "/functions/*", "/storage/*", "/worker/*", "/supabase/*", "/google-sheet/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "kaycharly", "database_id": "REPLACE_WITH_D1_ID" }
+  ],
+  "kv_namespaces": [
+    { "binding": "PHOTOS", "id": "REPLACE_WITH_KV_ID" }
+  ],
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "vars": {
+    "OWNER_EMAIL": "kaycharly91750@gmail.com",
+    "SENDER_EMAIL": "kaycharly37@gmail.com"
+  },
+  "observability": { "enabled": true }
+}

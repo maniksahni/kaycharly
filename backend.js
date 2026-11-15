@@ -1,3 +1,5 @@
-// Browser-safe publishable key. Authorization is enforced by database RLS.
-window.KC={url:'https://bqtsczpszczikonpdtlo.supabase.co',key:'sb_publishable_gne4fUsTvunjOXgEAxxERw_a95D27kT'};
+// Backend: on Cloudflare (kaycharly.fr, *.workers.dev, local `wrangler dev`) the API is served by the same site
+// (worker/index.js). Elsewhere (GitHub Pages, until the switch) it is the former Supabase project; its
+// publishable key is browser-safe, authorization being enforced by its database RLS.
+window.KC={url:(/(^|\.)kaycharly\.fr$|\.workers\.dev$/.test(location.hostname)||location.port==='8787')?'':'https://bqtsczpszczikonpdtlo.supabase.co',key:'sb_publishable_gne4fUsTvunjOXgEAxxERw_a95D27kT'};
 KC.api=async function(path,{token,method='GET',body,headers={}}={}){const r=await fetch(KC.url+path,{method,headers:{apikey:KC.key,...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});const data=await r.json().catch(()=>null);if(!r.ok)throw Error(data?.message||data?.msg||data?.error_description||'Connexion impossible');return data};

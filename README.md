@@ -1,6 +1,8 @@
 # Kay Charly
 
-Static restaurant storefront hosted on GitHub Pages, with a Supabase database and authenticated administration.
+Static restaurant storefront with authenticated administration.
+
+**Moving to Cloudflare (in progress).** `worker/index.js` + `wrangler.jsonc` run the whole site on one free Cloudflare account: the static pages (repository root, `.assetsignore` hides the server files), a D1 database (`worker/schema.sql`, same tables as before), KV for menu photos, a 10-minute cron (feedback emails + unprinted-order alert) and the same API paths the pages already call (`/rest/v1`, `/auth/v1`, `/functions/v1`, `/storage/v1`), so the pages did not change. `backend.js` uses the Cloudflare API on `kaycharly.fr`, `*.workers.dev` and local `wrangler dev` (port 8787), and the former Supabase project everywhere else until the switch. Secrets: `ADMIN_PASSWORD`, `BREVO_API_KEY`, `SHEET_TOKEN`; var `SITE_ORIGIN`. Local test: `npx wrangler d1 execute kaycharly --local --file worker/schema.sql`, then `npx wrangler dev --local` with a `.dev.vars` file.
 
 - `index.html`: storefront, live menu, category filters, cart, takeaway and delivery checkout. If the menu cannot load, it asks visitors to call.
 - `admin.html`, `admin.js`, `admin.css`: authenticated order management, search/status/date filters, daily menu, prices, photos, featured dishes and availability.
