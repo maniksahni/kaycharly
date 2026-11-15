@@ -115,7 +115,13 @@ window.KCC = (() => {
 
   // Called when the tab opens: fresh menu (availability may have changed), then draw.
   async function open() { await window.kcReload?.(); prune(); render(); }
+  // Every admin refresh (15 s, or after a dish is switched on/off here): the list follows the menu at once.
+  function refresh() {
+    if (!$('ccMenu') || $('counter').hidden || sending) return;
+    const gone = prune(); render();
+    if (gone) say(`${gone} plat${gone > 1 ? 's' : ''} retiré${gone > 1 ? 's' : ''} du panier : plus disponible${gone > 1 ? 's' : ''}.`, true);
+  }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
-  return { open, render };
+  return { open, render, refresh };
 })();
