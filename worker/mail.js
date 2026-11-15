@@ -1,5 +1,5 @@
 // Kay Charly · every email the site sends (Brevo), the 80 mm receipt (email + PDF) and Paris-time helpers.
-// Same content as the former Supabase Edge Functions (order-notifications, customer-mailings).
+// Emails sent by the Worker (order confirmation, owner receipt with PDF, feedback, menu, print alert).
 
 export const SHOP = {
   name: 'Kay Charly',

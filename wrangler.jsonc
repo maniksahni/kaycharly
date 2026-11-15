@@ -10,7 +10,7 @@
     "binding": "ASSETS",
     "html_handling": "none",
     "not_found_handling": "none",
-    "run_worker_first": ["/rest/*", "/auth/*", "/functions/*", "/storage/*", "/worker/*", "/supabase/*", "/google-sheet/*"]
+    "run_worker_first": ["/rest/*", "/auth/*", "/functions/*", "/storage/*", "/worker/*", "/google-sheet/*"]
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "kaycharly", "database_id": "e916b2b8-a11a-401c-afd0-a95d8300239d" }
@@ -20,7 +20,6 @@
   ],
   "triggers": { "crons": ["*/10 * * * *"] },
   "vars": {
-    "LIVE": "yes",
     "SITE_ORIGIN": "https://kaycharly.fr",
     "OWNER_EMAIL": "kaycharly91750@gmail.com",
     "SENDER_EMAIL": "kaycharly37@gmail.com"

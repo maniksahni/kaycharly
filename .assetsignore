@@ -6,7 +6,6 @@
 node_modules
 _test
 worker
-supabase
 google-sheet
 wrangler.jsonc
 README.md

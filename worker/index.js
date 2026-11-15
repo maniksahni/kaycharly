@@ -1,14 +1,13 @@
 // Kay Charly · Cloudflare Worker: the whole site on one free Cloudflare account.
 //   • Static files (index.html, admin.html, …) are served from the repository root (assets).
-//   • /rest/v1/…, /auth/v1/…, /functions/v1/…, /storage/v1/… answer exactly what the pages already ask for
-//     (the same paths the former Supabase backend had), backed by D1 (database) and KV (menu photos).
+//   • /rest/v1/…, /auth/v1/…, /functions/v1/…, /storage/v1/…: the API the pages call, backed by D1 (database)
+//     and KV (menu photos).
 //   • Every 10 minutes (cron): "Comment était votre repas ?" emails and the unprinted-order alert.
 //
 // Bindings (wrangler.jsonc): DB (D1), PHOTOS (KV), ASSETS.
 // Secrets (Cloudflare dashboard → Worker → Settings → Variables and Secrets):
 //   ADMIN_PASSWORD (admin login) · BREVO_API_KEY (emails) · SHEET_TOKEN (Google Sheet, optional)
-// Vars: LIVE ("yes" once Supabase is switched off: turns on the cron emails), SITE_ORIGIN (links in emails sent
-// by the cron, e.g. https://kaycharly.fr), OWNER_EMAIL, SENDER_EMAIL.
+// Vars: SITE_ORIGIN (links in emails, https://kaycharly.fr), OWNER_EMAIL, SENDER_EMAIL.
 
 import {
   sendEmail, ownerEmail, customerOrderEmail, ownerOrderEmail, feedbackEmail, menuEmail, printAlertEmail,
@@ -341,11 +340,7 @@ async function functions(env, req, url) {
     return json({ customer_sent: true, owner_sent: true });
   }
 
-  if (name === 'import') { await requireAdmin(env, req); return runImport(env, body); }
-
   if (name === 'customer-mailings') {
-    // Until the switch (var LIVE = "yes"), Supabase still sends these: never twice.
-    if (body.action === 'feedback' && env.LIVE !== 'yes') return json({ paused: true });
     if (body.action === 'feedback') return json({ ...(await runFeedback(env, site)), print_alert: await runPrintAlert(env, site).catch((e) => ({ error: String(e) })) });
     if (body.action === 'menu') { await requireAdmin(env, req); return runMenu(env, site, body); }
     if (body.action === 'sheet') return runSheet(env, req, body);
@@ -468,55 +463,6 @@ async function runSheet(env, req, body) {
   return json({ generated_at: now(), orders, clients: clientRows, reviews });
 }
 
-// ---------- one-time move from Supabase (admin only) ----------
-// body: { table, rows } → INSERT OR REPLACE of rows exported from the former database; or { photo: url } →
-// copies one menu photo from the former Supabase storage into KV and points the dishes to the new address.
-const IMPORT = {
-  kc_menu: ['id', 'name', 'description', 'category', 'price', 'photo', 'available', 'featured', 'sort_order', 'updated_at'],
-  kc_orders: ['id', 'reference', 'created_at', 'customer_name', 'customer_email', 'phone', 'address', 'note', 'pickup', 'items', 'total', 'status', 'request_id', 'archived_at', 'feedback_sent_at', 'feedback_token', 'notified_at'],
-  kc_email_prefs: ['email', 'token', 'unsubscribed_at', 'created_at'],
-  kc_feedback: ['order_reference', 'rating', 'comment', 'created_at', 'updated_at'],
-  kc_mailings: ['kind', 'subject', 'recipients', 'sent', 'failed', 'created_at'],
-  kc_printer_status: ['device_id', 'device_name', 'platform', 'mode', 'printer_name', 'ready', 'stuck_step', 'stuck_label', 'steps', 'last_print_ref', 'last_print_at', 'last_error', 'diag', 'updated_at'],
-  kc_printer_events: ['id', 'device_id', 'event', 'detail', 'created_at'],
-};
-const TIME_COLS = new Set(['created_at', 'updated_at', 'archived_at', 'feedback_sent_at', 'unsubscribed_at', 'notified_at', 'last_print_at']);
-const OLD_PHOTOS = 'https://bqtsczpszczikonpdtlo.supabase.co/storage/v1/object/public/menu-photos/';
-async function runImport(env, body) {
-  if (body.photo) {
-    const name = String(body.photo).startsWith(OLD_PHOTOS) ? String(body.photo).slice(OLD_PHOTOS.length) : '';
-    if (!/^[A-Za-z0-9._-]{1,80}$/.test(name)) deny(400, 'Photo invalide');
-    const r = await fetch(OLD_PHOTOS + name);
-    if (!r.ok) deny(502, 'Photo introuvable : ' + r.status);
-    const type = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
-    await env.PHOTOS.put(name, await r.arrayBuffer(), { metadata: { type } });
-    const path = '/storage/v1/object/public/menu-photos/' + name;
-    const u = await env.DB.prepare('UPDATE kc_menu SET photo = ? WHERE photo = ?').bind(path, OLD_PHOTOS + name).run();
-    return json({ photo: path, dishes: u.meta.changes });
-  }
-  const cols = IMPORT[body.table];
-  if (!cols || !Array.isArray(body.rows)) deny(400, 'Import invalide');
-  // Values are kept as they are; only times are written in one format and JSON/booleans stored as text/0-1.
-  const now0 = now();
-  const value = (c, v) => {
-    if (v === undefined || v === null) {
-      if (c === 'created_at' || c === 'updated_at') return now0;
-      if (c === 'notified_at' && body.table === 'kc_orders') return now0;   // old orders: emails already sent
-      return null;
-    }
-    if (TIME_COLS.has(c)) return new Date(v).toISOString();
-    if (c === 'items' || c === 'steps' || c === 'diag') return typeof v === 'string' ? v : JSON.stringify(v);
-    if (typeof v === 'boolean') return v ? 1 : 0;
-    return v;
-  };
-  const rows = body.rows.map((r) => cols.map((c) => value(c, r[c])));
-  for (let i = 0; i < rows.length; i += 50) {
-    await env.DB.batch(rows.slice(i, i + 50).map((r) => env.DB.prepare(`INSERT OR REPLACE INTO ${body.table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).bind(...r)));
-  }
-  const { n } = await env.DB.prepare(`SELECT count(*) AS n FROM ${body.table}`).first();
-  return json({ table: body.table, imported: rows.length, total: n });
-}
-
 // ---------- /storage/v1: menu photos in KV ----------
 const PHOTO_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 async function storage(env, req, url) {
@@ -567,7 +513,7 @@ export default {
         return await storage(env, req, url);
       }
       // Static pages: never serve the server's own files.
-      if (/^\/(worker|supabase|google-sheet)\//.test(url.pathname) || /^\/(wrangler\.jsonc|README\.md|\.assetsignore)$/.test(url.pathname)) return new Response('Not found', { status: 404 });
+      if (/^\/(worker|google-sheet|_test)\//.test(url.pathname) || /^\/(wrangler\.jsonc|README\.md|\.assetsignore)$/.test(url.pathname)) return new Response('Not found', { status: 404 });
       if (/^\/\./.test(url.pathname)) return new Response('Not found', { status: 404 });   // .dev.vars, .git…
       if (url.pathname.endsWith('/')) return env.ASSETS.fetch(new Request(new URL(url.pathname + 'index.html', url), req));
       return env.ASSETS.fetch(req);
@@ -580,7 +526,6 @@ export default {
 
   // Every 10 minutes: feedback emails + unprinted-order alert.
   async scheduled(event, env, ctx) {
-    if (env.LIVE !== 'yes') return;   // switched on with the move from Supabase (var LIVE = "yes")
     await ensureSchema(env);
     const site = (env.SITE_ORIGIN || 'https://kaycharly.fr').replace(/\/$/, '') + '/';
     ctx.waitUntil((async () => {

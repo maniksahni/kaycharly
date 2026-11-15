@@ -1,4 +1,4 @@
--- Kay Charly · Cloudflare D1 database (SQLite). Same tables and columns as the former Supabase database.
+-- Kay Charly · Cloudflare D1 database (SQLite).
 -- Times are ISO-8601 UTC strings (e.g. 2026-11-15T10:30:00.000Z); booleans are 0/1; JSON is stored as text.
 -- Safe to run more than once.
 

@@ -1,9 +1,7 @@
-// The site lives at https://kaycharly.fr. The other addresses (GitHub Pages, Cloudflare Pages, www, workers.dev) send every
-// visitor there, keeping the page, its query (avis / désinscription links in old emails) and #hash. Plain http goes to
-// https too: the printer's Bluetooth/USB only works on a secure page.
+// The site lives at https://kaycharly.fr. Any other address that still shows these pages (old links in emails and
+// bookmarks: GitHub Pages, Cloudflare Pages, www, workers.dev, plain http) sends the visitor there, keeping the page,
+// its query (avis / désinscription tokens) and #hash. The printer's Bluetooth/USB only works on https.
 (function(){var h=location.hostname;if(h==='maniksahni.github.io'||h==='www.kaycharly.fr'||(h==='kaycharly.fr'&&location.protocol==='http:')||/(^|\.)kaycharly\.pages\.dev$|\.workers\.dev$/.test(h)){location.replace('https://kaycharly.fr'+location.pathname.replace(/^\/kaycharly(\/|$)/,'/')+location.search+location.hash);}})();
-// Backend: on Cloudflare (kaycharly.fr, *.workers.dev, local `wrangler dev`) the API is served by the same site
-// (worker/index.js). Elsewhere (GitHub Pages, until the switch) it is the former Supabase project; its
-// publishable key is browser-safe, authorization being enforced by its database RLS.
-window.KC={url:(/(^|\.)kaycharly\.fr$|\.workers\.dev$/.test(location.hostname)||location.port==='8787')?'':'https://bqtsczpszczikonpdtlo.supabase.co',key:'sb_publishable_gne4fUsTvunjOXgEAxxERw_a95D27kT'};
-KC.api=async function(path,{token,method='GET',body,headers={}}={}){const r=await fetch(KC.url+path,{method,headers:{apikey:KC.key,...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});const data=await r.json().catch(()=>null);if(!r.ok)throw Error(data?.message||data?.msg||data?.error_description||'Connexion impossible');return data};
+// API: served by the same site (Cloudflare Worker, worker/index.js).
+window.KC={url:''};
+KC.api=async function(path,{token,method='GET',body,headers={}}={}){const r=await fetch(KC.url+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});const data=await r.json().catch(()=>null);if(!r.ok)throw Error(data?.message||data?.msg||data?.error_description||'Connexion impossible');return data};

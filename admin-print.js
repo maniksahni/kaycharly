@@ -11,7 +11,7 @@
 //   • usb    – USB cable with a phone adapter (OTG) (WebUSB, ESC/POS). Reads paper/cover status.
 // On a computer the tab only shows the phone's state (remote follow-up) and how to set the phone up.
 //
-// Every state change is reported to Supabase (kc_printer_status + kc_printer_events) so the setup can be
+// Every state change is reported to the site (kc_printer_status + kc_printer_events) so the setup can be
 // followed from any other logged-in admin: which step the restaurant phone is stuck on, and why.
 
 window.KCP = (() => {
