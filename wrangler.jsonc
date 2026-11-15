@@ -25,6 +25,8 @@
     "OWNER_EMAIL": "kaycharly91750@gmail.com",
     "SENDER_EMAIL": "kaycharly37@gmail.com"
   },
+  // Keep variables added in the dashboard (deploys from GitHub must never remove them).
+  "keep_vars": true,
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": true }
