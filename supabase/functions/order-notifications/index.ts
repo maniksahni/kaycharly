@@ -9,6 +9,8 @@
 
 const SITE_ORIGIN = Deno.env.get("SITE_ORIGIN") || "https://maniksahni.github.io";
 const ADMIN_URL = SITE_ORIGIN + "/kaycharly/admin.html";
+// Pages allowed to call this function from a browser (current address, Cloudflare Pages, own domain).
+const ALLOWED_ORIGINS = [SITE_ORIGIN, "https://maniksahni.github.io", "https://kaycharly.pages.dev", "https://kaycharly.fr", "https://www.kaycharly.fr"];
 const OWNER_EMAIL = Deno.env.get("OWNER_EMAIL") || "kaycharly91750@gmail.com";
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "kaycharly37@gmail.com";
 
@@ -34,7 +36,7 @@ type Mail = { subject: string; html: string; text: string; attachment?: { name: 
 // ---------- helpers ----------
 
 const cors = {
-  "Access-Control-Allow-Origin": SITE_ORIGIN,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Vary": "Origin",
@@ -318,7 +320,7 @@ async function loadOrder(reference: string): Promise<Order | null> {
 
 Deno.serve(async (req) => {
   const requestOrigin = req.headers.get("origin");
-  if (requestOrigin && requestOrigin !== SITE_ORIGIN) return json({ error: "Origin not allowed" }, 403);
+  if (requestOrigin && !ALLOWED_ORIGINS.includes(requestOrigin) && !/^https:\/\/[a-z0-9-]+\.kaycharly\.pages\.dev$/.test(requestOrigin)) return json({ error: "Origin not allowed" }, 403);
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 

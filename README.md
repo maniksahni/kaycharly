@@ -56,6 +56,12 @@ On a computer the Imprimante tab does not connect anything: it explains that the
 
 Remote follow-up: the phone reports its state to `kc_printer_status` (ready, step it is stuck on, printer, last ticket, last error, `diag`: OS, Chrome version, USB/Bluetooth support, methods tried, page visible) and its actions to `kc_printer_events` (admins only; migrations `20261112120000_printer_status.sql`, `20261112130000_printer_ble_diag.sql`). The "Suivi à distance" panel shows this to any logged-in admin, with a button that asks the phone to print a test ticket (a `remote_test` event it polls every 20 s; a new device never replays old requests).
 
+## Unprinted order alert
+
+The feedback cron (`customer-mailings`, every 10 minutes) also checks printing: a « Nouvelle » order of the last 3 hours that arrived more than 10 minutes ago without a `print_ok` from the restaurant phone triggers one email to the owner listing the order(s) and what to check (phone on the Kay Charly page, printer on). Each order is alerted once (`unprinted_alert` event). Grants: `20261115100000_print_alert_grants.sql`.
+
+Both Edge Functions accept browser calls from `maniksahni.github.io`, `kaycharly.pages.dev` (and its preview subdomains), `kaycharly.fr` and `www.kaycharly.fr`.
+
 ## Day summary, export and Google Sheet
 
 - **Admin, « Aujourd’hui »**: today's orders by status (à préparer, en préparation, prêtes, remises with livrées / à emporter, annulées), delivery vs take-away, and a 7-day table. **« Exporter les commandes (Excel / CSV) »** downloads every loaded order (semicolon CSV with BOM, opens in Excel/Sheets) — also a manual backup.

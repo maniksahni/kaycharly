@@ -518,6 +518,7 @@ window.KCP = (() => {
       : 'Imprimante à vérifier : ' + next.text;
     if (!isPhone) bar.dataset.state = 'info';
     $('setupPanel').hidden = !isPhone; $('stepsPanel').hidden = !isPhone; $('phoneOnly').hidden = isPhone;
+    if (!isPhone) $('phoneLink').textContent = new URL('admin.html#imprimante', document.baseURI).href.replace(/^https?:\/\//, '');   // this site's own address
     list.innerHTML = all.map((s, i) => `<li class="${s.ok && !s.warn ? 'ok' : s.ok || s.warn ? 'warn' : 'ko'}${s === next ? ' next' : ''}"><span>${s.ok && !s.warn ? '✓' : i + 1}</span><div><b>${h(s.label)}</b><small>${h(s.text)}</small>${s.action ? `<button type="button" class="${s === next ? '' : 'secondary '}small" data-step="${s.action[1]}">${h(s.action[0])}</button>` : ''}</div></li>`).join('');
     $('printerNext').innerHTML = ready
       ? '<b>✓ Tout est prêt.</b> Laissez cette page ouverte : les commandes s’impriment toutes seules.'

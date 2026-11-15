@@ -6,6 +6,8 @@
 //   • action "feedback" – called every 10 minutes by pg_cron. 30 minutes after the end of each order's
 //                         service window it sends "Comment était votre repas ?" with 1–5 star links.
 //                         Safe to call by anyone: it only sends emails that are due and not sent yet.
+//                         Same call: a new order still not printed 10 minutes after it arrived → one alert
+//                         email to the owner (only once a printer has been set up).
 //   • action "sheet"    – the owner's Google Sheet (google-sheet/KayCharly.gs) fetches the orders every
 //                         10 minutes. Needs the x-sheet-token header = SHEET_TOKEN secret.
 // Single file on purpose, so it can be pasted into the Supabase dashboard editor.
@@ -15,6 +17,8 @@
 
 const SITE_ORIGIN = Deno.env.get("SITE_ORIGIN") || "https://maniksahni.github.io";
 const SITE = SITE_ORIGIN + "/kaycharly/";
+// Pages allowed to call this function from a browser (current address, Cloudflare Pages, own domain).
+const ALLOWED_ORIGINS = [SITE_ORIGIN, "https://maniksahni.github.io", "https://kaycharly.pages.dev", "https://kaycharly.fr", "https://www.kaycharly.fr"];
 const OWNER_EMAIL = Deno.env.get("OWNER_EMAIL") || "kaycharly91750@gmail.com";
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "kaycharly37@gmail.com";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -30,7 +34,7 @@ type Order = { reference: string; customer_name: string; customer_email: string;
 type Mail = { subject: string; html: string; text: string };
 
 // ---------- helpers ----------
-const cors = { "Access-Control-Allow-Origin": SITE_ORIGIN, "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" };
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const euros = (cents: number) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(Number(cents) / 100);
@@ -205,6 +209,40 @@ async function runMenu(req: Request, body: any) {
   return json({ recipients: list.length, sent, failed });
 }
 
+// ---------- unprinted order alert ----------
+// Runs with the feedback cron (every 10 minutes). A "Nouvelle" order of the last 3 hours that arrived more
+// than 10 minutes ago and has no "print_ok" from the restaurant phone → one email to the owner listing it.
+// Each order is alerted once (event "unprinted_alert"). Nothing happens until a printer has been set up.
+const ALERT_DEVICE = "server-alerts";
+async function runPrintAlert() {
+  const st = await (await db("kc_printer_status?select=device_name,mode,updated_at&mode=neq.&order=updated_at.desc&limit=1")).json();
+  if (!Array.isArray(st) || !st.length) return { checked: 0, alerted: 0 };
+  const from = new Date(Date.now() - 3 * 3600000).toISOString(), to = new Date(Date.now() - 10 * 60000).toISOString();
+  const orders = await (await db(`kc_orders?select=reference,customer_name,created_at,pickup,total&status=eq.Nouvelle&created_at=gte.${encodeURIComponent(from)}&created_at=lte.${encodeURIComponent(to)}&order=created_at.asc`)).json();
+  if (!Array.isArray(orders) || !orders.length) return { checked: 0, alerted: 0 };
+  const ev = await (await db(`kc_printer_events?select=detail&created_at=gte.${encodeURIComponent(from)}&event=in.(print_ok,unprinted_alert)`)).json();
+  const seen = new Set((Array.isArray(ev) ? ev : []).map((e: any) => String(e.detail).split(" ")[0]));
+  const missing = orders.filter((o: any) => !seen.has(o.reference));
+  if (!missing.length) return { checked: orders.length, alerted: 0 };
+  const hm = (t: string) => { const q = parisParts(new Date(t).getTime()); return `${String(q.h).padStart(2, "0")}h${String(q.mi).padStart(2, "0")}`; };
+  const lines = missing.map((o: any) => `${o.reference} · ${o.customer_name} · reçue à ${hm(o.created_at)} · ${/livraison/i.test(o.pickup || "") ? "Livraison" : "À emporter"} · ${euros(o.total)}`);
+  const phone = st[0];
+  const html = layout(`<div style="padding:26px 24px">
+    <p style="margin:0 0 6px;color:#a82c22;font-size:12px;font-weight:bold;letter-spacing:2px">IMPRIMANTE</p>
+    <h1 style="margin:0 0 12px;font:normal 28px Georgia,serif">${missing.length > 1 ? missing.length + " commandes ne sont pas sorties" : "Une commande n’est pas sortie"} de l’imprimante</h1>
+    <div style="margin:0 0 16px;padding:14px 16px;background:#fff;border-radius:12px;font-size:15px;line-height:1.7">${lines.map(esc).join("<br>")}</div>
+    <p style="margin:0 0 8px"><b>À vérifier :</b></p>
+    <ol style="margin:0 0 18px;padding-left:20px;line-height:1.7"><li>Le téléphone est allumé, branché, et la page <b>Kay Charly</b> est ouverte à l’écran.</li><li>L’imprimante est allumée, avec du papier, capot fermé.</li><li>Si « Reconnecter » apparaît sur la page, touchez-le.</li></ol>
+    <p style="margin:0 0 18px">Dès que la page est de nouveau ouverte, les commandes en attente s’impriment toutes seules.</p>
+    <p style="margin:0">${button(SITE + "admin.html", "Ouvrir l’administration")}</p>
+    <p style="margin:16px 0 0;font-size:13px;color:#4d5f56">Dernier signe de vie du téléphone (${esc(phone.device_name || "téléphone")}) : ${esc(hm(phone.updated_at))}.</p>
+  </div>`);
+  const text = `Commande(s) non imprimée(s) :\n${lines.join("\n")}\n\nVérifiez : téléphone allumé et branché, page Kay Charly ouverte à l’écran ; imprimante allumée avec du papier. ${SITE}admin.html`;
+  const ok = await sendEmail(OWNER_EMAIL, { subject: `⚠️ Commande non imprimée : ${missing.map((o: any) => o.reference).join(", ")}`.slice(0, 180), html, text });
+  if (ok) await db("kc_printer_events", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(missing.map((o: any) => ({ device_id: ALERT_DEVICE, event: "unprinted_alert", detail: o.reference }))) });
+  return { checked: orders.length, alerted: ok ? missing.length : 0 };
+}
+
 // ---------- Google Sheet export ----------
 // Orders of the last `days` days (max 400), one flat row each, in Paris time. Read-only.
 async function runSheet(req: Request, body: any) {
@@ -227,14 +265,19 @@ async function runSheet(req: Request, body: any) {
 
 Deno.serve(async (req) => {
   const origin = req.headers.get("origin");
-  if (origin && origin !== SITE_ORIGIN) return json({ error: "Origin not allowed" }, 403);
+  if (origin && !ALLOWED_ORIGINS.includes(origin) && !/^https:\/\/[a-z0-9-]+\.kaycharly\.pages\.dev$/.test(origin)) return json({ error: "Origin not allowed" }, 403);
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!BREVO_KEY || !SUPABASE_URL || !SERVICE_KEY) return json({ error: "Email service is not configured" }, 503);
   let body: any = {};
   try { body = await req.json(); } catch { return json({ error: "Invalid request" }, 400); }
   try {
-    if (body.action === "feedback") return json(await runFeedback());
+    if (body.action === "feedback") {
+      const feedback = await runFeedback();
+      let print_alert: unknown = null;
+      try { print_alert = await runPrintAlert(); } catch (e) { console.error("print alert failed", String(e)); print_alert = { error: true }; }
+      return json({ ...feedback, print_alert });
+    }
     if (body.action === "menu") return await runMenu(req, body);
     if (body.action === "sheet") return await runSheet(req, body);
     return json({ error: "Unknown action" }, 400);
