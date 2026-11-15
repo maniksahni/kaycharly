@@ -1,0 +1,13 @@
+# Kay Charly · https://kaycharly.fr
+# Search engines and AI assistants are welcome to read and cite the public pages.
+User-agent: *
+Allow: /
+Disallow: /admin.html
+Disallow: /avis.html
+Disallow: /desinscription.html
+Disallow: /rest/
+Disallow: /auth/
+Disallow: /functions/
+Allow: /storage/v1/object/public/
+
+Sitemap: https://kaycharly.fr/sitemap.xml

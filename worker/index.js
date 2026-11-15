@@ -485,6 +485,64 @@ async function storage(env, req, url) {
   deny(404, 'Introuvable');
 }
 
+// ---------- search engines and AI assistants ----------
+// The home page gets the live menu as schema.org data (dishes, prices, today's availability), and /llms.txt gives
+// AI assistants a plain-text summary with the same menu. Both read D1 on each request, so they never go stale.
+const SITE = 'https://kaycharly.fr/';
+const esc = (t) => String(t ?? '').replace(/[<>&]/g, (c) => ({ '<': '\\u003c', '>': '\\u003e', '&': '\\u0026' }[c]));
+async function publicMenu(env) {
+  const { results } = await env.DB.prepare("SELECT name, description, category, price, available FROM kc_menu WHERE category <> 'Hors carte' ORDER BY sort_order, name").all();
+  const cats = new Map();
+  for (const r of results) { if (!cats.has(r.category)) cats.set(r.category, []); cats.get(r.category).push(r); }
+  return cats;
+}
+const euros = (c) => (c / 100).toFixed(2).replace('.', ',') + ' €';
+async function homePage(env, req) {
+  const page = await env.ASSETS.fetch(new Request(new URL('/index.html', req.url), req));
+  if (!page.ok) return page;
+  let cats;
+  try { cats = await publicMenu(env); } catch { return page; }
+  const menu = {
+    '@context': 'https://schema.org', '@type': 'Menu', '@id': SITE + '#carte', name: 'La carte Kay Charly', url: SITE + '#carte', inLanguage: 'fr',
+    hasMenuSection: [...cats].map(([name, items]) => ({
+      '@type': 'MenuSection', name,
+      hasMenuItem: items.map((i) => ({
+        '@type': 'MenuItem', name: i.name, ...(i.description ? { description: i.description } : {}),
+        offers: { '@type': 'Offer', price: (i.price / 100).toFixed(2), priceCurrency: 'EUR', availability: i.available ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock' },
+      })),
+    })),
+  };
+  return new HTMLRewriter().on('head', { element(e) { e.append(`<script type="application/ld+json">${esc(JSON.stringify(menu))}</script>`, { html: true }); } }).transform(page);
+}
+async function llmsTxt(env) {
+  const cats = await publicMenu(env);
+  const lines = [
+    '# Kay Charly',
+    '',
+    '> Restaurant et épicerie antillaise (cuisine créole faite maison) à Champcueil, Essonne (91), France. Plats du jour, poulet-frites, sandwichs, spécialités des îles. Sur place, à emporter ou en livraison sans frais dans les communes voisines. Commande en ligne sur https://kaycharly.fr — paiement à la remise de la commande.',
+    '',
+    '## Infos pratiques',
+    '- Adresse : 19 rue de la Marivoise, 91750 Champcueil, France',
+    '- Téléphone : 07 60 62 95 72 (aussi 01 75 29 39 98)',
+    '- Commander en ligne : https://kaycharly.fr/#carte',
+    '- Midi : tous les jours, 11h30–14h (viandes, poulets, poissons + accompagnement, selon le jour)',
+    '- Soir : du mercredi au dimanche, 18h–21h (poulet-frites)',
+    '- Sandwichs : le midi, à retirer en boutique à partir de 11h30 (pas de livraison)',
+    '- Pâtés salés et autres : le week-end, sur commande',
+    '- Livraison sans frais : commande avant 10h, livrée entre 10h et 11h30, à Champcueil, Chevannes, Mondeville, Ballancourt-sur-Essonne, Mennecy, Ormoy et Fontenay-le-Vicomte',
+    '- Paiement : à la remise de la commande',
+    '- Instagram : https://www.instagram.com/kay.charly91/ · Facebook : https://www.facebook.com/kay.charly91',
+    '',
+    '## La carte (prix en euros, mise à jour en direct)',
+  ];
+  for (const [name, items] of cats) {
+    lines.push('', '### ' + name);
+    for (const i of items) lines.push(`- ${i.name} — ${euros(i.price)}${i.description ? ' · ' + i.description : ''}${i.available ? '' : ' (indisponible aujourd’hui)'}`);
+  }
+  lines.push('', 'Les plats du jour changent selon le jour ; la page https://kaycharly.fr affiche ce qui est disponible maintenant.', '');
+  return new Response(lines.join('\n'), { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=600', ...SECURITY } });
+}
+
 // Tables are created on first use (CREATE … IF NOT EXISTS), once per Worker instance.
 let schemaReady = null;
 function ensureSchema(env) {
@@ -515,6 +573,8 @@ export default {
       // Static pages: never serve the server's own files.
       if (/^\/(worker|google-sheet|_test)\//.test(url.pathname) || /^\/(wrangler\.jsonc|README\.md|\.assetsignore)$/.test(url.pathname)) return new Response('Not found', { status: 404 });
       if (/^\/\./.test(url.pathname)) return new Response('Not found', { status: 404 });   // .dev.vars, .git…
+      if (url.pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) { await ensureSchema(env); return await homePage(env, req); }
+      if (url.pathname === '/llms.txt') { await ensureSchema(env); return await llmsTxt(env); }
       if (url.pathname.endsWith('/')) return env.ASSETS.fetch(new Request(new URL(url.pathname + 'index.html', url), req));
       return env.ASSETS.fetch(req);
     } catch (e) {

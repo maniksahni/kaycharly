@@ -91,6 +91,18 @@ If a « Nouvelle » order is more than 10 minutes old and has not printed, the c
   - Every 10 minutes it rewrites five tabs: Commandes, Clients, Avis, Par jour and Aujourd'hui.
   - It only reads.
 
+## Search engines and AI assistants (SEO / GEO)
+
+- **`index.html` `<head>`**:
+  - title, description and canonical (`https://kaycharly.fr/`);
+  - Open Graph image `img/og-kay-charly.jpg`, favicon and app icons;
+  - geo tags;
+  - `Restaurant` schema.org data: address, GPS, phone, hours, delivery towns, cuisine, order action and social profiles.
+- **The Worker adds the live menu** (`Menu`, with sections, dishes, prices and today's availability) to the home page.
+- **`/llms.txt`** is a plain-text summary with the same live menu, for AI assistants.
+- **`robots.txt`** allows everything public and blocks the admin, avis, désinscription and API pages. It points to `sitemap.xml`. The admin page is also `noindex`.
+- **Google Search Console**: domain property `kaycharly.fr`, verified with a DNS TXT record in Cloudflare. The sitemap is submitted there.
+
 ## Checking things in Cloudflare
 
 D1 → kaycharly → Console accepts single-line SQL; use only `select` queries. For example, the 10 latest orders:
