@@ -603,8 +603,14 @@ export default {
       if (/^\/\./.test(url.pathname)) return new Response('Not found', { status: 404 });   // .dev.vars, .git…
       if (url.pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) { await ensureSchema(env); return await homePage(env, req); }
       if (url.pathname === '/llms.txt') { await ensureSchema(env); return await llmsTxt(env); }
+      // Short addresses people type (kaycharly.fr/admin, /avis…) go to the real page; the #hash is kept by the browser.
+      const page = /^\/(admin|avis|desinscription|index)(?:\.html?)?\/?$/i.exec(url.pathname);
+      if (page && !url.pathname.endsWith('.html')) return Response.redirect(url.origin + (page[1].toLowerCase() === 'index' ? '/' : '/' + page[1].toLowerCase() + '.html') + url.search, 301);
       if (url.pathname.endsWith('/')) return env.ASSETS.fetch(new Request(new URL(url.pathname + 'index.html', url), req));
-      return env.ASSETS.fetch(req);
+      const res = await env.ASSETS.fetch(req);
+      // Unknown page: back to the home page instead of a blank screen. Missing files keep a real 404.
+      if (res.status === 404 && (req.method === 'GET' || req.method === 'HEAD') && !/\.[a-z0-9]{1,5}$/i.test(url.pathname)) return Response.redirect(url.origin + '/', 302);
+      return res;
     } catch (e) {
       if (e instanceof HttpError) return fail(e.message, e.status);
       console.error('Kay Charly API error', url.pathname, String(e && e.stack || e));
