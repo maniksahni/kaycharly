@@ -13,6 +13,7 @@ import {
   sendEmail, ownerEmail, customerOrderEmail, ownerOrderEmail, feedbackEmail, menuEmail, printAlertEmail,
   feedbackDue, parisDate, isDelivery,
 } from './mail.js';
+import { SCHEMA } from './schema.js';
 
 const now = () => new Date().toISOString();
 const STATUSES = ['Nouvelle', 'En préparation', 'Prête', 'Retirée', 'Annulée'];
@@ -339,6 +340,8 @@ async function functions(env, req, url) {
     return json({ customer_sent: true, owner_sent: true });
   }
 
+  if (name === 'import') { await requireAdmin(env, req); return runImport(env, body); }
+
   if (name === 'customer-mailings') {
     if (body.action === 'feedback') return json({ ...(await runFeedback(env, site)), print_alert: await runPrintAlert(env, site).catch((e) => ({ error: String(e) })) });
     if (body.action === 'menu') { await requireAdmin(env, req); return runMenu(env, site, body); }
@@ -441,6 +444,53 @@ async function runSheet(env, req, body) {
   }) });
 }
 
+// ---------- one-time move from Supabase (admin only) ----------
+// body: { table, rows } → INSERT OR REPLACE of rows exported from the former database; or { photo: url } →
+// copies one menu photo from the former Supabase storage into KV and points the dishes to the new address.
+const IMPORT = {
+  kc_menu: ['id', 'name', 'description', 'category', 'price', 'photo', 'available', 'featured', 'sort_order', 'updated_at'],
+  kc_orders: ['id', 'reference', 'created_at', 'customer_name', 'customer_email', 'phone', 'address', 'note', 'pickup', 'items', 'total', 'status', 'request_id', 'archived_at', 'feedback_sent_at', 'feedback_token', 'notified_at'],
+  kc_email_prefs: ['email', 'token', 'unsubscribed_at', 'created_at'],
+  kc_feedback: ['order_reference', 'rating', 'comment', 'created_at', 'updated_at'],
+  kc_mailings: ['kind', 'subject', 'recipients', 'sent', 'failed', 'created_at'],
+};
+const TIME_COLS = new Set(['created_at', 'updated_at', 'archived_at', 'feedback_sent_at', 'unsubscribed_at', 'notified_at']);
+const OLD_PHOTOS = 'https://bqtsczpszczikonpdtlo.supabase.co/storage/v1/object/public/menu-photos/';
+async function runImport(env, body) {
+  if (body.photo) {
+    const name = String(body.photo).startsWith(OLD_PHOTOS) ? String(body.photo).slice(OLD_PHOTOS.length) : '';
+    if (!/^[A-Za-z0-9._-]{1,80}$/.test(name)) deny(400, 'Photo invalide');
+    const r = await fetch(OLD_PHOTOS + name);
+    if (!r.ok) deny(502, 'Photo introuvable : ' + r.status);
+    const type = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
+    await env.PHOTOS.put(name, await r.arrayBuffer(), { metadata: { type } });
+    const path = '/storage/v1/object/public/menu-photos/' + name;
+    const u = await env.DB.prepare('UPDATE kc_menu SET photo = ? WHERE photo = ?').bind(path, OLD_PHOTOS + name).run();
+    return json({ photo: path, dishes: u.meta.changes });
+  }
+  const cols = IMPORT[body.table];
+  if (!cols || !Array.isArray(body.rows)) deny(400, 'Import invalide');
+  // Values are kept as they are; only times are written in one format and JSON/booleans stored as text/0-1.
+  const now0 = now();
+  const value = (c, v) => {
+    if (v === undefined || v === null) {
+      if (c === 'created_at' || c === 'updated_at') return now0;
+      if (c === 'notified_at' && body.table === 'kc_orders') return now0;   // old orders: emails already sent
+      return null;
+    }
+    if (TIME_COLS.has(c)) return new Date(v).toISOString();
+    if (c === 'items') return typeof v === 'string' ? v : JSON.stringify(v);
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return v;
+  };
+  const rows = body.rows.map((r) => cols.map((c) => value(c, r[c])));
+  for (let i = 0; i < rows.length; i += 50) {
+    await env.DB.batch(rows.slice(i, i + 50).map((r) => env.DB.prepare(`INSERT OR REPLACE INTO ${body.table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).bind(...r)));
+  }
+  const { n } = await env.DB.prepare(`SELECT count(*) AS n FROM ${body.table}`).first();
+  return json({ table: body.table, imported: rows.length, total: n });
+}
+
 // ---------- /storage/v1: menu photos in KV ----------
 const PHOTO_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 async function storage(env, req, url) {
@@ -463,6 +513,13 @@ async function storage(env, req, url) {
   deny(404, 'Introuvable');
 }
 
+// Tables are created on first use (CREATE … IF NOT EXISTS), once per Worker instance.
+let schemaReady = null;
+function ensureSchema(env) {
+  schemaReady ||= env.DB.batch(SCHEMA.map((q) => env.DB.prepare(q))).catch((e) => { schemaReady = null; throw e; });
+  return schemaReady;
+}
+
 // ---------- entry points ----------
 export default {
   async fetch(req, env) {
@@ -472,6 +529,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204 });
     try {
       if (/^\/(rest|auth|functions|storage)\/v1\//.test(url.pathname)) {
+        await ensureSchema(env);
         if (origin && origin !== url.origin && req.method !== 'GET') deny(403, 'Origine non autorisée');
         if (url.pathname.startsWith('/rest/v1/')) return await rest(env, req, url);
         if (url.pathname.startsWith('/auth/v1/')) return await auth(env, req, url);
@@ -492,6 +550,7 @@ export default {
 
   // Every 10 minutes: feedback emails + unprinted-order alert.
   async scheduled(event, env, ctx) {
+    await ensureSchema(env);
     const site = (env.SITE_ORIGIN || 'https://kaycharly.fr').replace(/\/$/, '') + '/';
     ctx.waitUntil((async () => {
       try { console.log('feedback', JSON.stringify(await runFeedback(env, site))); } catch (e) { console.error('feedback failed', String(e)); }
