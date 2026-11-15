@@ -56,10 +56,8 @@ Admin → « 🧾 Commande sur place » is for a customer standing in the restau
 - There is no name, phone or e-mail. Every order still gets its own reference `KC-…`.
 - The Worker (`rpc/kc_place_counter_order`, admin only) checks availability and sets the prices. A double tap gives the same order.
 - The order is saved « En préparation », and no e-mail is sent.
-- Two tickets print right away, one after the other, each followed by a cut:
-  1. the customer's receipt: order number, dishes, prices, total, « Merci »;
-  2. a short « À PRÉPARER » ticket for the kitchen: big dish names, sur place / à emporter, no prices.
-- Without a connected printer, the print window shows both, the kitchen part on its own page.
+- One ticket prints right away: the customer's receipt, with the order number, dishes, prices, total and « Merci ».
+- Without a connected printer, the print window opens instead.
 - It appears in Commandes, the day summary and the Google Sheet like any order. The ticket header says « SUR PLACE » or « À EMPORTER ».
 
 ## Order emails

@@ -132,7 +132,7 @@ window.KCP = (() => {
     L.push({ rule: 1 }, { t: 'Kay Charly · 07 60 62 95 72', center: 1 });
     return L;
   }
-  // « Commande sur place », 1 of 2: the customer's receipt (what they ordered, prices, order number).
+  // « Commande sur place »: the customer's receipt (what they ordered, prices, order number). One ticket only.
   function counterReceipt(o) {
     const L = [
       { t: 'KAY CHARLY', size: 'title', center: 1 },
@@ -147,19 +147,6 @@ window.KCP = (() => {
     for (const i of o.items || []) L.push({ left: `${i.quantity} x ${i.name}`, right: money(i.price * i.quantity), bold: 1 });
     L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 }, { rule: 1 },
       { t: 'Merci et à bientôt !', size: 'big', center: 1 }, { t: 'Commandez aussi en ligne : kaycharly.fr', center: 1 });
-    return L;
-  }
-  // « Commande sur place », 2 of 2: a short ticket for the kitchen: what to prepare, big, no prices.
-  function kitchenTicket(o) {
-    const L = [
-      { t: 'À PRÉPARER', size: 'title', center: 1, invert: 1 },
-      { t: modeLabel(o), size: 'big', center: 1, bold: 1 },
-      { t: o.reference + ' · ' + new Date(o.created_at).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' }), center: 1 },
-      { rule: 1 },
-    ];
-    for (const i of o.items || []) L.push({ t: `${i.quantity} x ${KITCHEN[i.id] || i.name}`, size: 'big', bold: 1 });
-    if (o.note) L.push({ rule: 1 }, { t: o.note, size: 'big', bold: 1 });
-    L.push({ rule: 1 });
     return L;
   }
   const SAMPLE = {
@@ -662,7 +649,7 @@ window.KCP = (() => {
     if (!o) return;
     if (!active()) { KCReceipt.show(o, true); return; }   // no printer set up: receipt view with the print window
     try {
-      await send(ticket(o)); if (isCounter(o)) await send(kitchenTicket(o));   // sur place: customer receipt, then the kitchen ticket
+      await send(ticket(o));   // sur place: one ticket, the customer's receipt
       const done = readDone(); done[o.id] = Date.now(); saveDone(done); lastError = '';
       cfg.lastPrint = { ref: o.reference, at: Date.now() }; saveCfg(); logEvent('print_ok', o.reference + ' (manuel)');
     } catch (e) { lastError = `${o.reference} : ${e.message}`; logEvent('print_fail', `${o.reference} · ${e.message}`); }
@@ -881,5 +868,5 @@ window.KCP = (() => {
     if (location.hash === '#imprimante' || (!cfg.mode && !closedBefore)) openWizard();
   }
 
-  return { sync, on: active, badge, printOne, render, loadRemote, onLogin, openWizard, _poll: pollCommands, _ticket: ticket, _kitchen: kitchenTicket, _escpos: escpos, _draw: draw, _testTicket: testTicket };
+  return { sync, on: active, badge, printOne, render, loadRemote, onLogin, openWizard, _poll: pollCommands, _ticket: ticket, _escpos: escpos, _draw: draw, _testTicket: testTicket };
 })();
