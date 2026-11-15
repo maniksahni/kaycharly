@@ -1,7 +1,7 @@
 // Kay Charly · Google Sheet des commandes
 // À coller dans le Google Sheet : Extensions → Apps Script → remplacer tout le code → Enregistrer.
 // Puis, dans Apps Script : Paramètres du projet (⚙️) → Propriétés du script → Ajouter :
-//   SHEET_TOKEN = (la même valeur que le secret SHEET_TOKEN de Supabase)
+//   SHEET_TOKEN = (la même valeur que le secret SHEET_TOKEN de Cloudflare)
 // Puis, dans le Sheet : menu « Kay Charly » → « Activer la mise à jour automatique ».
 //
 // Onglets créés et tenus à jour toutes les 10 minutes (toutes les commandes depuis le début) :
