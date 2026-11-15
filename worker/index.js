@@ -220,6 +220,24 @@ function menuValue(k, v) {
 // ---------- /rest/v1/rpc ----------
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REF = /^KC-[A-F0-9]{10}$/;
+// Checks a cart against the menu: every dish must exist and be available; prices come from the database.
+async function priceItems(DB, items, maxQty) {
+  if (!Array.isArray(items) || items.length < 1 || items.length > 30) deny(400, 'Panier invalide');
+  const ids = items.map((i) => String(i?.id || ''));
+  const { results: dishes } = await DB.prepare(`SELECT id, name, price, available FROM kc_menu WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+  const byId = Object.fromEntries(dishes.map((d) => [d.id, d]));
+  let amount = 0; const snapshot = [];
+  for (const it of items) {
+    const q = Number(it.quantity);
+    if (!Number.isInteger(q) || q < 1 || q > maxQty) deny(400, 'Quantité invalide');
+    const d = byId[String(it.id)];
+    if (!d || !d.available || d.price <= 0) deny(400, 'Un plat est indisponible, actualisez votre panier');
+    amount += d.price * q;
+    snapshot.push({ id: d.id, name: d.name, quantity: q, price: d.price });
+  }
+  return { amount, snapshot };
+}
+
 async function rpc(env, req, fn) {
   if (req.method !== 'POST') deny(405, 'Méthode non autorisée');
   const b = await req.json().catch(() => ({}));
@@ -237,25 +255,35 @@ async function rpc(env, req, fn) {
       if (previous) return json(previous);   // same click sent twice: same order
       const recent = await DB.prepare('SELECT count(*) AS n FROM kc_orders WHERE phone = ? AND created_at > ?').bind(phone, new Date(Date.now() - 5 * 60000).toISOString()).first();
       if (recent.n >= 3) deny(400, 'Veuillez patienter avant une nouvelle commande');
-      const items = b.p_items;
-      if (!Array.isArray(items) || items.length < 1 || items.length > 30) deny(400, 'Panier invalide');
-      const ids = items.map((i) => String(i?.id || ''));
-      const { results: dishes } = await DB.prepare(`SELECT id, name, price, available FROM kc_menu WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
-      const byId = Object.fromEntries(dishes.map((d) => [d.id, d]));
-      let amount = 0; const snapshot = [];
-      for (const it of items) {
-        const q = Number(it.quantity);
-        if (!Number.isInteger(q) || q < 1 || q > 20) deny(400, 'Quantité invalide');
-        const d = byId[String(it.id)];
-        if (!d || !d.available || d.price <= 0) deny(400, 'Un plat est indisponible, actualisez votre panier');
-        amount += d.price * q;
-        snapshot.push({ id: d.id, name: d.name, quantity: q, price: d.price });
-      }
+      const { amount, snapshot } = await priceItems(DB, b.p_items, 20);
       if (amount > 100000) deny(400, 'Pour une grande commande, appelez la boutique');
       const reference = 'KC-' + crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
       try {
         await DB.prepare(`INSERT INTO kc_orders (id, reference, created_at, customer_name, customer_email, phone, address, note, pickup, items, total, status, request_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nouvelle', ?)`).bind(crypto.randomUUID(), reference, now(), name, email, phone, address, note, pickup, JSON.stringify(snapshot), amount, requestId).run();
+      } catch (e) {
+        const again = await DB.prepare('SELECT reference, total FROM kc_orders WHERE request_id = ?').bind(requestId).first();
+        if (again) return json(again);
+        throw e;
+      }
+      return json({ reference, total: amount });
+    }
+
+    // « Commande sur place »: a customer in the shop; the owner picks the dishes in the admin and prints the receipt.
+    // Admin only, no customer details, no e-mail. Starts « En préparation », so the automatic printing leaves it
+    // to the receipt button (no double ticket) and the unprinted-order alert ignores it.
+    case 'kc_place_counter_order': {
+      await requireAdmin(env, req);
+      const requestId = String(b.p_request_id || '');
+      if (!UUID.test(requestId)) deny(400, 'Commande invalide');
+      const previous = await DB.prepare('SELECT reference, total FROM kc_orders WHERE request_id = ?').bind(requestId).first();
+      if (previous) return json(previous);   // same click sent twice: same order
+      const { amount, snapshot } = await priceItems(DB, b.p_items, 50);
+      const reference = 'KC-' + crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
+      const pickup = 'Commande sur place · ' + (b.p_mode === 'emporter' ? 'à emporter' : 'à manger sur place');
+      try {
+        await DB.prepare(`INSERT INTO kc_orders (id, reference, created_at, customer_name, customer_email, phone, address, note, pickup, items, total, status, request_id, notified_at)
+          VALUES (?, ?, ?, 'Client sur place', '', '', '', '', ?, ?, ?, 'En préparation', ?, ?)`).bind(crypto.randomUUID(), reference, now(), pickup, JSON.stringify(snapshot), amount, requestId, now()).run();
       } catch (e) {
         const again = await DB.prepare('SELECT reference, total FROM kc_orders WHERE request_id = ?').bind(requestId).first();
         if (again) return json(again);

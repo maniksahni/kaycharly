@@ -48,6 +48,16 @@ Customers cannot read orders. Payment is cash at handoff. Delivery is free.
 
 The admin loads the 500 latest orders and refreshes every 15 seconds. Times and daily totals use Europe/Paris.
 
+## Commande sur place (in the shop)
+
+Admin → « 🧾 Commande sur place » is for a customer standing in the restaurant. It has a gold button at the top and a tab.
+
+- The owner taps the dishes, which are only those available in the admin. They choose « Sur place » or « À emporter », then « Valider et imprimer ».
+- There is no name, phone or e-mail. Every order still gets its own reference `KC-…`.
+- The Worker (`rpc/kc_place_counter_order`, admin only) checks availability and sets the prices. A double tap gives the same order.
+- The order is saved « En préparation », and no e-mail is sent. The receipt prints at once on the phone's printer, or opens the print window if no printer is connected.
+- It appears in Commandes, the day summary and the Google Sheet like any order. The ticket header says « SUR PLACE » or « À EMPORTER ».
+
 ## Order emails
 
 Right after each order, `functions/v1/order-notifications` sends two French emails through Brevo from `kaycharly37@gmail.com`:

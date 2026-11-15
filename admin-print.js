@@ -114,17 +114,19 @@ window.KCP = (() => {
     const time = new Date(o.created_at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' });
     const L = [
       { t: 'KAY CHARLY', size: 'title', center: 1 },
-      { t: delivery ? 'LIVRAISON' : 'À EMPORTER', size: 'big', center: 1, invert: 1 },
+      { t: delivery ? 'LIVRAISON' : /à manger sur place/i.test(o.pickup || '') ? 'SUR PLACE' : 'À EMPORTER', size: 'big', center: 1, invert: 1 },
       { t: o.reference, center: 1, bold: 1 },
       { t: time, center: 1 },
       { rule: 1 },
-      { t: o.customer_name, size: 'big', bold: 1 },
-      { t: o.phone, bold: 1 },
     ];
+    const counter = /^Commande sur place/.test(o.pickup || '');
+    if (!counter) L.push({ t: o.customer_name, size: 'big', bold: 1 });
+    if (o.phone) L.push({ t: o.phone, bold: 1 });
     if (delivery && o.address) L.push({ t: o.address, bold: 1 });
     L.push({ t: o.pickup || (delivery ? 'Livraison entre 10h et 11h30' : 'Retrait en boutique') }, { rule: 1 });
     for (const i of o.items || []) L.push({ left: `${i.quantity} x ${KITCHEN[i.id] || i.name}`, right: money(i.price * i.quantity), bold: 1 });
-    L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 }, { t: 'À régler en espèces à la remise', center: 1 });
+    L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 });
+    if (!counter) L.push({ t: 'À régler en espèces à la remise', center: 1 });
     if (o.note) L.push({ rule: 1 }, { t: 'REMARQUE', bold: 1 }, { t: o.note, size: 'big', bold: 1 });
     L.push({ rule: 1 }, { t: 'Kay Charly · 07 60 62 95 72', center: 1 });
     return L;
