@@ -7,7 +7,8 @@
 // Bindings (wrangler.jsonc): DB (D1), PHOTOS (KV), ASSETS.
 // Secrets (Cloudflare dashboard → Worker → Settings → Variables and Secrets):
 //   ADMIN_PASSWORD (admin login) · BREVO_API_KEY (emails) · SHEET_TOKEN (Google Sheet, optional)
-// Vars: SITE_ORIGIN (links in emails sent by the cron, e.g. https://kaycharly.fr), OWNER_EMAIL, SENDER_EMAIL.
+// Vars: LIVE ("yes" once Supabase is switched off: turns on the cron emails), SITE_ORIGIN (links in emails sent
+// by the cron, e.g. https://kaycharly.fr), OWNER_EMAIL, SENDER_EMAIL.
 
 import {
   sendEmail, ownerEmail, customerOrderEmail, ownerOrderEmail, feedbackEmail, menuEmail, printAlertEmail,
@@ -343,6 +344,8 @@ async function functions(env, req, url) {
   if (name === 'import') { await requireAdmin(env, req); return runImport(env, body); }
 
   if (name === 'customer-mailings') {
+    // Until the switch (var LIVE = "yes"), Supabase still sends these: never twice.
+    if (body.action === 'feedback' && env.LIVE !== 'yes') return json({ paused: true });
     if (body.action === 'feedback') return json({ ...(await runFeedback(env, site)), print_alert: await runPrintAlert(env, site).catch((e) => ({ error: String(e) })) });
     if (body.action === 'menu') { await requireAdmin(env, req); return runMenu(env, site, body); }
     if (body.action === 'sheet') return runSheet(env, req, body);
@@ -550,6 +553,7 @@ export default {
 
   // Every 10 minutes: feedback emails + unprinted-order alert.
   async scheduled(event, env, ctx) {
+    if (env.LIVE !== 'yes') return;   // switched on with the move from Supabase (var LIVE = "yes")
     await ensureSchema(env);
     const site = (env.SITE_ORIGIN || 'https://kaycharly.fr').replace(/\/$/, '') + '/';
     ctx.waitUntil((async () => {

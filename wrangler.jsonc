@@ -20,8 +20,12 @@
   ],
   "triggers": { "crons": ["*/10 * * * *"] },
   "vars": {
+    "LIVE": "no",
+    "SITE_ORIGIN": "https://kaycharly.kaycharly37.workers.dev",
     "OWNER_EMAIL": "kaycharly91750@gmail.com",
     "SENDER_EMAIL": "kaycharly37@gmail.com"
   },
+  "workers_dev": true,
+  "preview_urls": false,
   "observability": { "enabled": true }
 }
