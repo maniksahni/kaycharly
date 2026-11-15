@@ -48,6 +48,19 @@ Customers cannot read orders. Payment is cash at handoff. Delivery is free.
 
 The admin loads the 500 latest orders and refreshes every 15 seconds. Times and daily totals use Europe/Paris.
 
+## Dashboard shortcuts
+
+Every number at the top of the admin is clickable, and so is every box in « Aujourd'hui ». Each opens the matching list.
+
+| Click | Opens |
+|---|---|
+| Commandes du jour, Total du jour | Today's orders |
+| À préparer | Today's « Nouvelle » orders |
+| Plats disponibles | The available dishes |
+| En préparation / Prêtes / Remises / Annulées boxes | Today's orders with that status |
+
+« 📊 Google Sheet » opens the owner's Sheet. The Sheet is private to the kaycharly37 Google account.
+
 ## Commande sur place (in the shop)
 
 Admin → « 🧾 Commande sur place » is for a customer standing in the restaurant. It has a gold button at the top and a tab.

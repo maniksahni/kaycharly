@@ -55,3 +55,7 @@ nav{overflow-x:auto;scrollbar-width:none}nav button{white-space:nowrap;flex:none
 .cc-done{text-align:center;border-color:var(--ink)}.cc-done h2{margin:8px 0}.cc-done p{font-size:16px}.cc-done .actions{justify-content:center;flex-wrap:wrap;margin-top:16px}
 @media(max-width:640px){.cc-bar{grid-template-columns:1fr auto}.cc-bar #ccSend{grid-column:1/-1}.heading{flex-wrap:wrap}.heading-actions{width:100%}#counterGo{flex:1;font-size:16px;min-height:52px}}
 @media print{.cc-bar,#counter{display:none!important}}
+/* Dashboard shortcuts and Google Sheet link */
+.clickable{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;position:relative}.clickable:hover,.clickable:focus-visible{border-color:var(--ink);box-shadow:0 4px 14px rgba(27,66,52,.14);transform:translateY(-2px)}.stats .clickable::after{content:"→";position:absolute;top:18px;right:20px;opacity:.35;font-size:18px}.clickable:hover::after{opacity:1}.ds-grid>.clickable{border-radius:8px}.ds-grid>.clickable:hover{background:#f6efe2}
+.btn-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:11px 14px;border:1px solid #d1d3c5;border-radius:6px;text-decoration:none;color:var(--ink);background:#fffaf0;font-weight:600}.btn-link:hover{border-color:var(--ink)}
+@media(max-width:640px){#sheetGo,#reload{flex:1}}
