@@ -101,7 +101,10 @@ If a « Nouvelle » order is more than 10 minutes old and has not printed, the c
 - **The Worker adds the live menu** (`Menu`, with sections, dishes, prices and today's availability) to the home page.
 - **`/llms.txt`** is a plain-text summary with the same live menu, for AI assistants.
 - **`robots.txt`** allows everything public and blocks the admin, avis, désinscription and API pages. It points to `sitemap.xml`. The admin page is also `noindex`.
-- **Google Search Console**: domain property `kaycharly.fr`, verified with a DNS TXT record in Cloudflare. The sitemap is submitted there.
+- **Google Search Console** (kaycharly37 account): URL-prefix property `https://kaycharly.fr/`.
+  - It is verified by `google19042a54e91f046e.html` and the `google-site-verification` meta tag. Keep both.
+  - The sitemap is submitted there, and indexing of the home page was requested.
+- **Bing / IndexNow**: the key file `2e6886758f29801ae9fe127564952ba3.txt` lets us notify Bing and Yandex of changes (POST to `api.indexnow.org/indexnow`). ChatGPT search uses Bing.
 
 ## Checking things in Cloudflare
 
