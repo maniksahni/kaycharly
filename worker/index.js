@@ -436,15 +436,36 @@ async function runPrintAlert(env, site) {
 async function runSheet(env, req, body) {
   if (!env.SHEET_TOKEN) deny(503, 'Google Sheet non configuré (secret SHEET_TOKEN manquant)');
   if (!sameText(req.headers.get('x-sheet-token') || '', env.SHEET_TOKEN)) deny(401, 'Accès refusé');
-  const days = Math.min(400, Math.max(1, Number(body.days) || 90));
-  const { results } = await env.DB.prepare('SELECT reference, created_at, customer_name, phone, customer_email, pickup, address, items, total, status, note FROM kc_orders WHERE created_at >= ? ORDER BY created_at DESC LIMIT 5000')
-    .bind(new Date(Date.now() - days * 86400000).toISOString()).all();
-  return json({ generated_at: now(), orders: results.map((r) => {
+  const days = Math.min(3650, Math.max(1, Number(body.days) || 3650));   // default: everything
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const [{ results }, { results: fb }, { results: prefs }] = await Promise.all([
+    env.DB.prepare('SELECT reference, created_at, customer_name, phone, customer_email, pickup, address, items, total, status, note, archived_at FROM kc_orders WHERE created_at >= ? ORDER BY created_at DESC LIMIT 20000').bind(since).all(),
+    env.DB.prepare('SELECT f.order_reference, f.rating, f.comment, f.created_at, f.updated_at, o.customer_name, o.phone, o.customer_email FROM kc_feedback f LEFT JOIN kc_orders o ON o.reference = f.order_reference ORDER BY f.updated_at DESC').all(),
+    env.DB.prepare('SELECT email, unsubscribed_at FROM kc_email_prefs').all(),
+  ]);
+  const hhmm = (t) => new Date(t).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+  const orders = results.map((r) => {
     const o = outOrder(r);
-    return { reference: o.reference, date: parisDate(o.created_at), time: new Date(o.created_at).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' }),
+    return { reference: o.reference, date: parisDate(o.created_at), time: hhmm(o.created_at),
       client: o.customer_name, phone: o.phone, email: o.customer_email, mode: isDelivery(o) ? 'Livraison' : 'À emporter', address: o.address || '',
-      items: (o.items || []).map((i) => `${Number(i.quantity)} × ${i.name}`).join(', '), total: Number(o.total) / 100, status: o.status, note: o.note || '' };
-  }) });
+      items: (o.items || []).map((i) => `${Number(i.quantity)} × ${i.name}`).join(', '), total: Number(o.total) / 100, status: o.archived_at ? 'Archivée' : o.status, note: o.note || '' };
+  });
+  // One row per customer (by email, else phone): contact, orders, money spent (cancelled orders excluded), emails.
+  const unsub = new Map(prefs.map((p) => [p.email, p.unsubscribed_at]));
+  const clients = new Map();
+  for (const o of [...orders].reverse()) {
+    const key = (o.email || '').toLowerCase() || 'tel:' + o.phone;
+    const c = clients.get(key) || { client: o.client, email: o.email, phone: o.phone, address: '', first: o.date, last: o.date, orders: 0, cancelled: 0, spent: 0, delivery: 0, pickup: 0 };
+    c.client = o.client; c.phone = o.phone; c.last = o.date; if (o.address) c.address = o.address;
+    if (o.status === 'Annulée' || o.status === 'Archivée') c.cancelled++;
+    else { c.orders++; c.spent += o.total; o.mode === 'Livraison' ? c.delivery++ : c.pickup++; }
+    clients.set(key, c);
+  }
+  const clientRows = [...clients.values()].map((c) => ({ ...c, spent: Math.round(c.spent * 100) / 100,
+    emails: !c.email ? '—' : unsub.get(c.email.toLowerCase()) ? 'Désinscrit' : 'Oui' })).sort((a, b) => (a.last < b.last ? 1 : -1));
+  const reviews = fb.map((f) => ({ reference: f.order_reference, date: parisDate(f.updated_at), time: hhmm(f.updated_at), rating: f.rating,
+    comment: f.comment || '', client: f.customer_name || '', phone: f.phone || '', email: f.customer_email || '' }));
+  return json({ generated_at: now(), orders, clients: clientRows, reviews });
 }
 
 // ---------- one-time move from Supabase (admin only) ----------

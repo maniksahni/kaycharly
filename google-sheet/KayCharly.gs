@@ -4,14 +4,16 @@
 //   SHEET_TOKEN = (la même valeur que le secret SHEET_TOKEN de Supabase)
 // Puis, dans le Sheet : menu « Kay Charly » → « Activer la mise à jour automatique ».
 //
-// Onglets créés et tenus à jour toutes les 10 minutes (90 derniers jours) :
+// Onglets créés et tenus à jour toutes les 10 minutes (toutes les commandes depuis le début) :
 //   • « Aujourd’hui » : commandes du jour, combien à préparer / prêtes / remises / livrées / à emporter / annulées.
 //   • « Par jour »    : les mêmes chiffres jour par jour + chiffre d’affaires.
 //   • « Commandes »   : une ligne par commande.
+//   • « Clients »     : une ligne par client (contact, nombre de commandes, total dépensé, e-mails acceptés ou non).
+//   • « Avis »        : les notes et commentaires laissés par les clients.
 // Le Sheet ne fait que lire : rien n’est modifié sur le site.
 
-const KC_URL = 'https://bqtsczpszczikonpdtlo.supabase.co/functions/v1/customer-mailings';
-const KC_DAYS = 90;
+const KC_URL = 'https://kaycharly.fr/functions/v1/customer-mailings';
+const KC_DAYS = 3650;   // tout l’historique
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Kay Charly')
@@ -37,7 +39,8 @@ function synchroniser() {
     payload: JSON.stringify({ action: 'sheet', days: KC_DAYS }),
   });
   if (res.getResponseCode() !== 200) throw new Error('Site Kay Charly : ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 200));
-  const orders = JSON.parse(res.getContentText()).orders;
+  const data = JSON.parse(res.getContentText());
+  const orders = data.orders;
   const ss = SpreadsheetApp.getActive();
   const tz = 'Europe/Paris';
   const now = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm');
@@ -46,7 +49,19 @@ function synchroniser() {
   // ---- Commandes ----
   const head = ['Date', 'Heure', 'Référence', 'Statut', 'Mode', 'Client', 'Téléphone', 'E-mail', 'Adresse', 'Plats', 'Total (€)', 'Remarque'];
   const rows = orders.map((o) => [o.date, o.time, o.reference, o.status, o.mode, o.client, "'" + o.phone, o.email, o.address, o.items, o.total, o.note]);
-  write_(ss, 'Commandes', [head].concat(rows), 'Mis à jour le ' + now + ' · ' + orders.length + ' commandes (' + KC_DAYS + ' derniers jours)');
+  write_(ss, 'Commandes', [head].concat(rows), 'Mis à jour le ' + now + ' · ' + orders.length + ' commandes');
+
+  // ---- Clients ----
+  const clientHead = ['Client', 'Téléphone', 'E-mail', 'Adresse', 'Commandes', 'dont livraison', 'dont à emporter', 'Annulées', 'Total dépensé (€)', 'Première commande', 'Dernière commande', 'Accepte les e-mails'];
+  const clientRows = (data.clients || []).map((c) => [c.client, "'" + c.phone, c.email, c.address, c.orders, c.delivery, c.pickup, c.cancelled, c.spent, c.first, c.last, c.emails]);
+  write_(ss, 'Clients', [clientHead].concat(clientRows), 'Mis à jour le ' + now + ' · ' + clientRows.length + ' clients');
+
+  // ---- Avis ----
+  const reviews = data.reviews || [];
+  const avg = reviews.length ? Math.round(reviews.reduce((a, r) => a + r.rating, 0) / reviews.length * 10) / 10 : 0;
+  const avisHead = ['Date', 'Heure', 'Note (1–5)', 'Étoiles', 'Commentaire', 'Client', 'Téléphone', 'E-mail', 'Commande'];
+  const avisRows = reviews.map((r) => [r.date, r.time, r.rating, '★★★★★'.slice(0, r.rating) + '☆☆☆☆☆'.slice(0, 5 - r.rating), r.comment, r.client, "'" + r.phone, r.email, r.reference]);
+  write_(ss, 'Avis', [avisHead].concat(avisRows), 'Mis à jour le ' + now + ' · ' + reviews.length + ' avis' + (reviews.length ? ' · moyenne ' + avg + ' / 5' : ''));
 
   // ---- Par jour ----
   const byDay = {};
@@ -81,7 +96,9 @@ function synchroniser() {
     ['Annulées', t.annulees],
     ['Commandes en livraison (hors annulées)', modes.Livraison],
     ['Commandes à emporter (hors annulées)', modes['À emporter']],
-    ['Chiffre du jour (€, hors annulées)', t.ca],
+ ['Chiffre du jour (€, hors annulées)', t.ca],
+    ['Clients au total', (data.clients || []).length],
+    ['Avis reçus (moyenne)', reviews.length + (reviews.length ? ' (' + avg + ' / 5)' : '')],
   ], 'Mis à jour le ' + now + ' · se met à jour toutes les 10 minutes');
 }
 

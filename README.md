@@ -67,7 +67,7 @@ Both Edge Functions accept browser calls from `maniksahni.github.io`, `kaycharly
 ## Day summary, export and Google Sheet
 
 - **Admin, « Aujourd’hui »**: today's orders by status (à préparer, en préparation, prêtes, remises with livrées / à emporter, annulées), delivery vs take-away, and a 7-day table. **« Exporter les commandes (Excel / CSV) »** downloads every loaded order (semicolon CSV with BOM, opens in Excel/Sheets) — also a manual backup.
-- **Google Sheet** (`google-sheet/KayCharly.gs`): an Apps Script pasted into the owner's Sheet calls `customer-mailings` with `{"action":"sheet"}` and the `x-sheet-token` header (Supabase secret `SHEET_TOKEN`, same value in the script's properties). Every 10 minutes it rewrites three tabs: « Aujourd’hui », « Par jour » (counts + revenue per day) and « Commandes » (one row per order, last 90 days). Read-only.
+- **Google Sheet** (`google-sheet/KayCharly.gs`): an Apps Script pasted into the owner's Sheet calls `https://kaycharly.fr/functions/v1/customer-mailings` with `{"action":"sheet"}` and the `x-sheet-token` header (Cloudflare secret `SHEET_TOKEN`, same value in the script's properties). Every 10 minutes it rewrites five tabs: « Aujourd’hui », « Par jour », « Commandes » (every order), « Clients » (one row per customer: contact, orders, money spent, e-mail consent) and « Avis » (ratings and comments). Read-only.
 
 ## Customer emails (menu du jour, avis)
 
