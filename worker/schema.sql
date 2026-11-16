@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS kc_orders (
   archived_at      TEXT,
   feedback_sent_at TEXT,
   feedback_token   TEXT,
-  notified_at      TEXT
+  notified_at      TEXT,
+  payment          TEXT NOT NULL DEFAULT ''   -- Carte bleue / Espèces / Tickets restaurant (paid at handoff)
 );
 CREATE INDEX IF NOT EXISTS kc_orders_created ON kc_orders (created_at);
 CREATE INDEX IF NOT EXISTS kc_orders_phone ON kc_orders (phone, created_at);

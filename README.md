@@ -73,6 +73,27 @@ Admin → « 🧾 Commande sur place » is for a customer standing in the restau
 - Without a connected printer, the print window opens instead.
 - It appears in Commandes, the day summary and the Google Sheet like any order. The ticket header says « SUR PLACE » or « À EMPORTER ».
 
+## Payment mode
+
+There is no online payment; customers pay at handoff. They choose one of three modes:
+- 💳 Carte bleue
+- 💶 Espèces
+- 🎟️ Tickets restaurant
+
+The site says « On accepte les tickets restaurant » in the hero, the info box, the menu footnote and the checkout.
+
+- **Checkout:** a choice is required. The Worker stores the mode in `kc_orders.payment` and accepts only `cb`, `especes` or `tr`. A page loaded before this option existed sends no mode; that order is accepted and shown as « Espèces ».
+- **Commande sur place:** the owner taps the mode before « Valider ».
+- **Where the mode shows:**
+  - the admin order cards;
+  - « À encaisser aujourd'hui » (today's total per mode);
+  - the printed ticket, in big letters (« À RÉGLER : TICKETS RESTAURANT »);
+  - the receipt;
+  - the customer email, the owner email and the PDF;
+  - the CSV;
+  - the Google Sheet: a « Paiement » column, plus a per-mode total in « Aujourd'hui ».
+- **Older orders:** the column was added by `ensureSchema` with `ALTER TABLE`. Orders from before it have no mode and show as « Espèces ».
+
 ## Order emails
 
 Right after each order, `functions/v1/order-notifications` sends two French emails through Brevo from `kaycharly37@gmail.com`:

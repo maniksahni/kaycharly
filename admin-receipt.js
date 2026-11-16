@@ -8,7 +8,7 @@ add('KAY CHARLY','c big');add('Cuisine créole · Champcueil','c');add('19 rue d
 add(delivery?'LIVRAISON':/à manger sur place/i.test(o.pickup||'')?'SUR PLACE':'À EMPORTER','c mid');add('Reçu '+o.reference,'c b');add(new Date(o.created_at).toLocaleString('fr-FR',{timeZone:'Europe/Paris',dateStyle:'short',timeStyle:'short'}),'c');rule();
 const counter=/^Commande sur place/.test(o.pickup||'');if(!counter)wrap('Client : '+(o.customer_name||''),W).forEach(x=>add(x,'b'));if(o.phone)add('Tél : '+o.phone);if(delivery&&o.address)wrap('Adresse : '+o.address,W).forEach(x=>add(x));
 wrap(o.pickup||'',W).forEach(x=>add(x));rule();
-for(const i of o.items||[])pair(i.quantity+' x '+i.name,eur(i.price*i.quantity),'b');rule();pair('TOTAL',eur(o.total),'b');if(!counter){add('À régler en espèces','c');add('à la remise','c')}
+for(const i of o.items||[])pair(i.quantity+' x '+i.name,eur(i.price*i.quantity),'b');rule();pair('TOTAL',eur(o.total),'b');add('Paiement : '+(o.payment||'Espèces'),'c b');if(!counter)add('à la remise','c');
 if(o.note){rule();add('REMARQUE','b');wrap(o.note,W).forEach(x=>add(x,'b'))}rule();add('Merci et à bientôt !','c');
 return L}
 let box;function view(){if(box)return box;box=document.createElement('div');box.id='receiptView';box.hidden=true;box.innerHTML='<div class="rv-bar"><button type="button" id="rvPrint">🖨️ Imprimer le reçu</button><button type="button" class="secondary" id="rvClose">Fermer</button></div><div class="rv-paper" id="rvPaper"></div>';document.body.append(box);

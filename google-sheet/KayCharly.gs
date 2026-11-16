@@ -47,8 +47,8 @@ function synchroniser() {
   const today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
   // ---- Commandes ----
-  const head = ['Date', 'Heure', 'Référence', 'Statut', 'Mode', 'Client', 'Téléphone', 'E-mail', 'Adresse', 'Plats', 'Total (€)', 'Remarque'];
-  const rows = orders.map((o) => [o.date, o.time, o.reference, o.status, o.mode, o.client, "'" + o.phone, o.email, o.address, o.items, o.total, o.note]);
+  const head = ['Date', 'Heure', 'Référence', 'Statut', 'Mode', 'Client', 'Téléphone', 'E-mail', 'Adresse', 'Plats', 'Total (€)', 'Paiement', 'Remarque'];
+  const rows = orders.map((o) => [o.date, o.time, o.reference, o.status, o.mode, o.client, "'" + o.phone, o.email, o.address, o.items, o.total, o.payment || 'Espèces', o.note]);
   write_(ss, 'Commandes', [head].concat(rows), 'Mis à jour le ' + now + ' · ' + orders.length + ' commandes');
 
   // ---- Clients ----
@@ -83,7 +83,8 @@ function synchroniser() {
   const t = byDay[today] || { total: 0, nouvelles: 0, prep: 0, pretes: 0, remises: 0, livrees: 0, emporter: 0, annulees: 0, ca: 0 };
   const todayOrders = orders.filter((o) => o.date === today);
   const modes = { Livraison: 0, 'À emporter': 0 };
-  todayOrders.forEach((o) => { if (o.status !== 'Annulée') modes[o.mode]++; });
+  const pays = { 'Carte bleue': 0, 'Espèces': 0, 'Tickets restaurant': 0 };
+  todayOrders.forEach((o) => { if (o.status !== 'Annulée') { modes[o.mode]++; pays[o.payment || 'Espèces'] = (pays[o.payment || 'Espèces'] || 0) + o.total; } });
   write_(ss, 'Aujourd’hui', [
     ['Aujourd’hui (' + today + ')', ''],
     ['Commandes reçues', t.total],

@@ -8,7 +8,8 @@ window.KCC = (() => {
   const eur = (c) => (Number(c) / 100).toFixed(2).replace('.', ',') + ' €';
   const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const cart = new Map();          // dish id -> quantity
-  let mode = 'surplace', requestId = crypto.randomUUID(), sending = false, last = null;
+  const PAY = { cb: 'Carte bleue', especes: 'Espèces', tr: 'Tickets restaurant' };
+  let pay = '', mode = 'surplace', requestId = crypto.randomUUID(), sending = false, last = null;
 
   const dishes = () => (typeof menu !== 'undefined' ? menu : []).filter((d) => d.available && d.price > 0 && d.category !== 'Hors carte');
   const byId = () => Object.fromEntries(dishes().map((d) => [String(d.id), d]));
@@ -43,6 +44,11 @@ window.KCC = (() => {
   }
   const render = () => { renderMenu(); renderCart(); };
 
+  function setPay(p) {
+    pay = p;
+    document.querySelectorAll('[data-ccpay]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.ccpay === p)));
+    $('ccPay').classList.remove('missing'); say('');
+  }
   function setMode(m) {
     mode = m;
     document.querySelectorAll('[data-ccmode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.ccmode === m)));
@@ -52,7 +58,7 @@ window.KCC = (() => {
 
   function reset() {
     cart.clear(); requestId = crypto.randomUUID(); last = null;
-    $('ccSearch').value = ''; setMode('surplace'); say('');
+    $('ccSearch').value = ''; setMode('surplace'); setPay(''); say('');
     $('ccDone').hidden = true; $('ccForm').hidden = false;
     render(); window.scrollTo({ top: $('counter').offsetTop - 10, behavior: 'smooth' });
   }
@@ -76,16 +82,17 @@ window.KCC = (() => {
 
   async function send() {
     if (sending || !count()) return;
+    if (!PAY[pay]) { $('ccPay').classList.add('missing'); $('ccPay').scrollIntoView({ behavior: 'smooth', block: 'center' }); say('Choisissez le paiement : carte bleue, espèces ou tickets restaurant.', true); return; }
     sending = true; renderCart(); say('Enregistrement de la commande…');
     try {
       const r = await KC.api('/rest/v1/rpc/kc_place_counter_order', { token: await token(), method: 'POST', body: {
-        p_request_id: requestId, p_mode: mode, p_items: [...cart].map(([id, quantity]) => ({ id, quantity })) } });
+        p_request_id: requestId, p_mode: mode, p_payment: pay, p_items: [...cart].map(([id, quantity]) => ({ id, quantity })) } });
       say('Commande enregistrée, impression du reçu…');
       const o = await findOrder(r.reference);
       last = o;
       const printed = await print(o);
       $('ccDoneTitle').textContent = `Commande ${r.reference} enregistrée`;
-      $('ccDoneText').textContent = `${eur(r.total)} · ${mode === 'emporter' ? 'à emporter' : 'sur place'}`;
+      $('ccDoneText').textContent = `${eur(r.total)} · ${mode === 'emporter' ? 'à emporter' : 'sur place'} · ${PAY[pay]}`;
       $('ccDonePrint').textContent = printed;
       $('ccForm').hidden = true; $('ccDone').hidden = false; say('');
       $('ccDone').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -107,6 +114,7 @@ window.KCC = (() => {
     });
     $('ccSearch').addEventListener('input', renderMenu);
     document.querySelectorAll('[data-ccmode]').forEach((b) => { b.onclick = () => setMode(b.dataset.ccmode); });
+    document.querySelectorAll('[data-ccpay]').forEach((b) => { b.onclick = () => setPay(b.dataset.ccpay); });
     $('ccClear').onclick = () => { if (confirm('Vider le panier ?')) { cart.clear(); say(''); render(); } };
     $('ccSend').onclick = send;
     $('ccNew').onclick = reset;

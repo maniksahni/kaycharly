@@ -59,3 +59,6 @@ nav{overflow-x:auto;scrollbar-width:none}nav button{white-space:nowrap;flex:none
 .clickable{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;position:relative}.clickable:hover,.clickable:focus-visible{border-color:var(--ink);box-shadow:0 4px 14px rgba(27,66,52,.14);transform:translateY(-2px)}.stats .clickable::after{content:"→";position:absolute;top:18px;right:20px;opacity:.35;font-size:18px}.clickable:hover::after{opacity:1}.ds-grid>.clickable{border-radius:8px}.ds-grid>.clickable:hover{background:#f6efe2}
 .btn-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:11px 14px;border:1px solid #d1d3c5;border-radius:6px;text-decoration:none;color:var(--ink);background:#fffaf0;font-weight:600}.btn-link:hover{border-color:var(--ink)}
 @media(max-width:640px){#sheetGo,#reload{flex:1}}
+
+.pay-tag{display:inline-block;padding:1px 8px;border-radius:999px;background:#fdf3d8;color:var(--ink)}.ds-pay{margin:6px 0 0;font-weight:600;font-size:13px}.ds-pay:empty{display:none}
+.cc-pay{grid-template-columns:repeat(3,1fr);margin:0 0 20px}.cc-pay button{font-size:15px;padding:8px 4px}.cc-pay.missing button{border-color:#c23a2c;box-shadow:0 0 0 2px #c23a2c33}

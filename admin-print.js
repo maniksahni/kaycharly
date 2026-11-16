@@ -127,7 +127,7 @@ window.KCP = (() => {
     if (delivery && o.address) L.push({ t: o.address, bold: 1 });
     L.push({ t: o.pickup || (delivery ? 'Livraison entre 10h et 11h30' : 'Retrait en boutique') }, { rule: 1 });
     for (const i of o.items || []) L.push({ left: `${i.quantity} x ${KITCHEN[i.id] || i.name}`, right: money(i.price * i.quantity), bold: 1 });
-    L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 }, { t: 'À régler en espèces à la remise', center: 1 });
+    L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 }, { t: 'À RÉGLER : ' + (o.payment || 'Espèces').toUpperCase(), size: 'big', center: 1, bold: 1 }, { t: 'Paiement à la remise', center: 1 });
     if (o.note) L.push({ rule: 1 }, { t: 'REMARQUE', bold: 1 }, { t: o.note, size: 'big', bold: 1 });
     L.push({ rule: 1 }, { t: 'Kay Charly · 07 60 62 95 72', center: 1 });
     return L;
@@ -145,7 +145,7 @@ window.KCP = (() => {
       { rule: 1 },
     ];
     for (const i of o.items || []) L.push({ left: `${i.quantity} x ${i.name}`, right: money(i.price * i.quantity), bold: 1 });
-    L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 }, { rule: 1 },
+    L.push({ rule: 1 }, { left: 'TOTAL', right: money(o.total), size: 'big', bold: 1 }, { t: 'Paiement : ' + (o.payment || 'Espèces'), center: 1, bold: 1 }, { rule: 1 },
       { t: 'Merci et à bientôt !', size: 'big', center: 1 }, { t: 'Commandez aussi en ligne : kaycharly.fr', center: 1 });
     return L;
   }

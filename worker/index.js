@@ -113,7 +113,7 @@ const outStatus = (r) => ({ ...r, ready: !!r.ready, steps: parse(r.steps, []), d
 // Small query reader for the GET requests the pages make: select, order, limit and col=op.value filters.
 const TABLES = {
   kc_menu: { cols: ['id', 'name', 'description', 'category', 'price', 'photo', 'available', 'featured', 'sort_order', 'updated_at'], out: outMenu, public: true },
-  kc_orders: { cols: ['id', 'reference', 'created_at', 'customer_name', 'customer_email', 'phone', 'address', 'note', 'pickup', 'items', 'total', 'status', 'request_id', 'archived_at', 'feedback_sent_at', 'feedback_token'], out: outOrder, where: 'archived_at IS NULL' },
+  kc_orders: { cols: ['id', 'reference', 'created_at', 'customer_name', 'customer_email', 'phone', 'address', 'note', 'pickup', 'items', 'total', 'status', 'request_id', 'archived_at', 'feedback_sent_at', 'feedback_token', 'payment'], out: outOrder, where: 'archived_at IS NULL' },
   kc_feedback: { cols: ['order_reference', 'rating', 'comment', 'created_at', 'updated_at'], out: (r) => r },
   kc_printer_status: { cols: ['device_id', 'device_name', 'platform', 'mode', 'printer_name', 'ready', 'stuck_step', 'stuck_label', 'steps', 'last_print_ref', 'last_print_at', 'last_error', 'diag', 'updated_at'], out: outStatus },
   kc_printer_events: { cols: ['id', 'device_id', 'event', 'detail', 'created_at'], out: (r) => r },
@@ -220,6 +220,15 @@ function menuValue(k, v) {
 // ---------- /rest/v1/rpc ----------
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REF = /^KC-[A-F0-9]{10}$/;
+// Payment at handoff: the customer (or the owner, for a « Commande sur place ») picks one.
+const PAYMENTS = { cb: 'Carte bleue', especes: 'Espèces', tr: 'Tickets restaurant' };
+function paymentOf(v, required) {
+  if (v === undefined || v === null || v === '') { if (required) deny(400, 'Choisissez un mode de paiement'); return ''; }
+  const label = PAYMENTS[String(v)];
+  if (!label) deny(400, 'Mode de paiement invalide');
+  return label;
+}
+
 // Checks a cart against the menu: every dish must exist and be available; prices come from the database.
 async function priceItems(DB, items, maxQty) {
   if (!Array.isArray(items) || items.length < 1 || items.length > 30) deny(400, 'Panier invalide');
@@ -255,12 +264,13 @@ async function rpc(env, req, fn) {
       if (previous) return json(previous);   // same click sent twice: same order
       const recent = await DB.prepare('SELECT count(*) AS n FROM kc_orders WHERE phone = ? AND created_at > ?').bind(phone, new Date(Date.now() - 5 * 60000).toISOString()).first();
       if (recent.n >= 3) deny(400, 'Veuillez patienter avant une nouvelle commande');
+      const payment = paymentOf(b.p_payment, false);   // a page opened before this option existed sends none
       const { amount, snapshot } = await priceItems(DB, b.p_items, 20);
       if (amount > 100000) deny(400, 'Pour une grande commande, appelez la boutique');
       const reference = 'KC-' + crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
       try {
-        await DB.prepare(`INSERT INTO kc_orders (id, reference, created_at, customer_name, customer_email, phone, address, note, pickup, items, total, status, request_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nouvelle', ?)`).bind(crypto.randomUUID(), reference, now(), name, email, phone, address, note, pickup, JSON.stringify(snapshot), amount, requestId).run();
+        await DB.prepare(`INSERT INTO kc_orders (id, reference, created_at, customer_name, customer_email, phone, address, note, pickup, items, total, status, request_id, payment)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nouvelle', ?, ?)`).bind(crypto.randomUUID(), reference, now(), name, email, phone, address, note, pickup, JSON.stringify(snapshot), amount, requestId, payment).run();
       } catch (e) {
         const again = await DB.prepare('SELECT reference, total FROM kc_orders WHERE request_id = ?').bind(requestId).first();
         if (again) return json(again);
@@ -278,12 +288,13 @@ async function rpc(env, req, fn) {
       if (!UUID.test(requestId)) deny(400, 'Commande invalide');
       const previous = await DB.prepare('SELECT reference, total FROM kc_orders WHERE request_id = ?').bind(requestId).first();
       if (previous) return json(previous);   // same click sent twice: same order
+      const payment = paymentOf(b.p_payment, true);
       const { amount, snapshot } = await priceItems(DB, b.p_items, 50);
       const reference = 'KC-' + crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
       const pickup = 'Commande sur place · ' + (b.p_mode === 'emporter' ? 'à emporter' : 'à manger sur place');
       try {
-        await DB.prepare(`INSERT INTO kc_orders (id, reference, created_at, customer_name, customer_email, phone, address, note, pickup, items, total, status, request_id, notified_at)
-          VALUES (?, ?, ?, 'Client sur place', '', '', '', '', ?, ?, ?, 'En préparation', ?, ?)`).bind(crypto.randomUUID(), reference, now(), pickup, JSON.stringify(snapshot), amount, requestId, now()).run();
+        await DB.prepare(`INSERT INTO kc_orders (id, reference, created_at, customer_name, customer_email, phone, address, note, pickup, items, total, status, request_id, notified_at, payment)
+          VALUES (?, ?, ?, 'Client sur place', '', '', '', '', ?, ?, ?, 'En préparation', ?, ?, ?)`).bind(crypto.randomUUID(), reference, now(), pickup, JSON.stringify(snapshot), amount, requestId, now(), payment).run();
       } catch (e) {
         const again = await DB.prepare('SELECT reference, total FROM kc_orders WHERE request_id = ?').bind(requestId).first();
         if (again) return json(again);
@@ -462,7 +473,7 @@ async function runSheet(env, req, body) {
   const days = Math.min(3650, Math.max(1, Number(body.days) || 3650));   // default: everything
   const since = new Date(Date.now() - days * 86400000).toISOString();
   const [{ results }, { results: fb }, { results: prefs }] = await Promise.all([
-    env.DB.prepare('SELECT reference, created_at, customer_name, phone, customer_email, pickup, address, items, total, status, note, archived_at FROM kc_orders WHERE created_at >= ? ORDER BY created_at DESC LIMIT 20000').bind(since).all(),
+    env.DB.prepare('SELECT reference, created_at, customer_name, phone, customer_email, pickup, address, items, total, status, note, archived_at, payment FROM kc_orders WHERE created_at >= ? ORDER BY created_at DESC LIMIT 20000').bind(since).all(),
     env.DB.prepare('SELECT f.order_reference, f.rating, f.comment, f.created_at, f.updated_at, o.customer_name, o.phone, o.customer_email FROM kc_feedback f LEFT JOIN kc_orders o ON o.reference = f.order_reference ORDER BY f.updated_at DESC').all(),
     env.DB.prepare('SELECT email, unsubscribed_at FROM kc_email_prefs').all(),
   ]);
@@ -471,7 +482,7 @@ async function runSheet(env, req, body) {
     const o = outOrder(r);
     return { reference: o.reference, date: parisDate(o.created_at), time: hhmm(o.created_at),
       client: o.customer_name, phone: o.phone, email: o.customer_email, mode: isDelivery(o) ? 'Livraison' : 'À emporter', address: o.address || '',
-      items: (o.items || []).map((i) => `${Number(i.quantity)} × ${i.name}`).join(', '), total: Number(o.total) / 100, status: o.archived_at ? 'Archivée' : o.status, note: o.note || '' };
+      items: (o.items || []).map((i) => `${Number(i.quantity)} × ${i.name}`).join(', '), total: Number(o.total) / 100, status: o.archived_at ? 'Archivée' : o.status, note: o.note || '', payment: o.payment || 'Espèces' };
   });
   // One row per customer (by email, else phone): contact, orders, money spent (cancelled orders excluded), emails.
   const unsub = new Map(prefs.map((p) => [p.email, p.unsubscribed_at]));
@@ -547,7 +558,7 @@ async function llmsTxt(env) {
   const lines = [
     '# Kay Charly',
     '',
-    '> Restaurant et épicerie antillaise (cuisine créole faite maison) à Champcueil, Essonne (91), France. Plats du jour, poulet-frites, sandwichs, spécialités des îles. Sur place, à emporter ou en livraison sans frais dans les communes voisines. Commande en ligne sur https://kaycharly.fr — paiement à la remise de la commande.',
+    '> Restaurant et épicerie antillaise (cuisine créole faite maison) à Champcueil, Essonne (91), France. Plats du jour, poulet-frites, sandwichs, spécialités des îles. Sur place, à emporter ou en livraison sans frais dans les communes voisines. Commande en ligne sur https://kaycharly.fr — paiement à la remise : carte bleue, espèces ou tickets restaurant.',
     '',
     '## Infos pratiques',
     '- Adresse : 19 rue de la Marivoise, 91750 Champcueil, France',
@@ -558,7 +569,7 @@ async function llmsTxt(env) {
     '- Sandwichs : le midi, à retirer en boutique à partir de 11h30 (pas de livraison)',
     '- Pâtés salés et autres : le week-end, sur commande',
     '- Livraison sans frais : commande avant 10h, livrée entre 10h et 11h30, à Champcueil, Chevannes, Mondeville, Ballancourt-sur-Essonne, Mennecy, Ormoy et Fontenay-le-Vicomte',
-    '- Paiement : à la remise de la commande',
+    '- Paiement à la remise de la commande : carte bleue, espèces ou tickets restaurant (tickets restaurant acceptés)',
     '- Instagram : https://www.instagram.com/kay.charly91/ · Facebook : https://www.facebook.com/kay.charly91',
     '',
     '## La carte (prix en euros, mise à jour en direct)',
@@ -574,7 +585,10 @@ async function llmsTxt(env) {
 // Tables are created on first use (CREATE … IF NOT EXISTS), once per Worker instance.
 let schemaReady = null;
 function ensureSchema(env) {
-  schemaReady ||= env.DB.batch(SCHEMA.map((q) => env.DB.prepare(q))).catch((e) => { schemaReady = null; throw e; });
+  schemaReady ||= env.DB.batch(SCHEMA.map((q) => env.DB.prepare(q)))
+    // Columns added after the first version (an existing table keeps its old shape): "duplicate column" means done.
+    .then(() => env.DB.prepare("ALTER TABLE kc_orders ADD COLUMN payment TEXT NOT NULL DEFAULT ''").run().catch((e) => { if (!/duplicate column/i.test(String(e))) throw e; }))
+    .catch((e) => { schemaReady = null; throw e; });
   return schemaReady;
 }
 

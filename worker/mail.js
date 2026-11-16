@@ -16,6 +16,8 @@ const HOURS_DELIVERY = 'Commande avant 10 h : livraison prévue entre 10 h et 11
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const euros = (cents) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(cents) / 100);
 export const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || '';
+// How the customer pays at handoff (orders from before the choice existed were cash).
+export const payOf = (o) => o.payment || 'Espèces';
 export const isDelivery = (o) => /livraison/i.test(o.pickup || '');
 const hoursFor = (o) => (isDelivery(o) ? HOURS_DELIVERY : HOURS_PICKUP);
 
@@ -80,7 +82,7 @@ function orderLayout(content) {
   <div style="padding:20px 26px;background:#0b1a14;color:#d7ddcf;font-size:13px;line-height:1.6">
     ${SHOP.name} · ${SHOP.street} · 91750 Champcueil<br>
     <a style="color:#f2b53a" href="tel:${SHOP.phoneLink}">${SHOP.phone}</a><br>
-    À emporter &amp; livraison · règlement en espèces à la remise
+    À emporter &amp; livraison · paiement à la remise : carte bleue, espèces ou tickets restaurant
   </div>
 </div>
 </body></html>`;
@@ -155,7 +157,7 @@ function receiptLines(o) {
   for (const item of o.items || []) row(item.quantity + ' x ' + item.name, price(item.price * item.quantity));
   rule();
   row('TOTAL', price(o.total), 11);
-  add('À régler en espèces à la remise', false, 9, true);
+  add('Paiement à la remise : ' + payOf(o), false, 9, true);
   if (o.note) {
     rule();
     add('REMARQUE', true);
@@ -227,14 +229,14 @@ export function customerOrderEmail(o) {
     <p>Référence <b>${esc(o.reference)}</b> · <b style="color:#ad5b38">${euros(o.total)}</b></p>
     <p>Votre commande est confirmée et passe en préparation. Nous vous contacterons si besoin. Gardez cette référence pour la remise.</p>
     <table role="presentation" style="width:100%;border-collapse:collapse">${rows}
-      <tr><td style="padding:16px 12px"><b>Total · espèces à la remise</b></td><td align="right" style="padding:16px 12px"><b>${euros(o.total)}</b></td></tr>
+      <tr><td style="padding:16px 12px"><b>Total · ${esc(payOf(o))} à la remise</b></td><td align="right" style="padding:16px 12px"><b>${euros(o.total)}</b></td></tr>
     </table>
     ${fulfilmentBox(o)}
   </div>`);
   const text = [
     'KAY CHARLY · COMMANDE CONFIRMÉE', 'Référence : ' + o.reference, o.pickup, hoursFor(o), '',
     ...(o.items || []).map((i) => `${i.quantity} × ${i.name} — ${euros(i.price * i.quantity)}`), '',
-    `Total : ${euros(o.total)} · espèces à la remise`, '', `${SHOP.name} · ${SHOP.address} · ${SHOP.phone}`,
+    `Total : ${euros(o.total)} · ${payOf(o)} à la remise`, '', `${SHOP.name} · ${SHOP.address} · ${SHOP.phone}`,
   ].join('\n');
   return { subject: `Commande confirmée ${o.reference} · Kay Charly`, html, text };
 }
@@ -250,6 +252,7 @@ export function ownerOrderEmail(o, site) {
     <p style="margin:0 0 6px;color:#38715b;font-size:12px;font-weight:bold;letter-spacing:2px">ACTION REQUISE</p>
     <h1 style="margin:0 0 10px;font:normal 30px Georgia,serif">Nouvelle commande à traiter</h1>
     <p style="margin:0 0 6px;font-size:17px">Référence <b>${esc(o.reference)}</b> · <b style="color:#ad5b38">${euros(o.total)}</b></p>
+    <p style="margin:0 0 6px;font-size:16px">Paiement à la remise : <b>${esc(payOf(o))}</b></p>
     <p style="margin:0 0 20px"><span style="display:inline-block;padding:6px 14px;border-radius:999px;background:${delivery ? '#f2b53a' : '#e9efe7'};color:#0b1a14;font-weight:bold;font-size:13px;letter-spacing:1px">${delivery ? 'LIVRAISON' : 'À EMPORTER'}</span></p>
     <div style="margin:0 0 8px"><a href="${esc(printUrl)}" style="display:inline-block;padding:15px 26px;border-radius:999px;background:#0b1a14;color:#f2b53a;font:bold 17px Arial,sans-serif;text-decoration:none">🖨️&nbsp; Imprimer le reçu</a></div>
     <p style="margin:0 0 22px;font-size:13px;color:#4d5f56">Le reçu est aussi joint à cet e-mail en PDF : <b>Recu-${esc(o.reference)}.pdf</b></p>
@@ -271,7 +274,7 @@ export function ownerOrderEmail(o, site) {
     'KAY CHARLY · NOUVELLE COMMANDE À TRAITER', 'Imprimer le reçu : ' + printUrl, '(Reçu aussi joint en PDF.)', '',
     ...receiptLines(o).map((l) => l.text), '',
     `Client : ${o.customer_name} · ${o.phone} · ${o.customer_email}`,
-    delivery ? 'Adresse : ' + o.address : 'Retrait en boutique', o.pickup,
+    delivery ? 'Adresse : ' + o.address : 'Retrait en boutique', o.pickup, 'Paiement à la remise : ' + payOf(o),
   ].join('\n');
   return {
     subject: `🔔 À TRAITER · ${euros(o.total)} · ${o.customer_name} · ${o.reference}`,
@@ -319,7 +322,7 @@ export function menuEmail(items, site, when, opts = {}) {
     <div style="padding:24px 22px;text-align:center">${button(site + '#carte', 'Commander maintenant')}
       <div style="margin:22px 0 0;padding:16px;background:#e9efe7;border-radius:12px;font-size:14px;line-height:1.6;text-align:left">
         <b>Livraison gratuite</b> : commandez avant 10h, livré entre 10h et 11h30.<br><span style="color:#4d5f56">${TOWNS}</span><br>
-        <b>À emporter</b> : midi 11h30 – 14h tous les jours, soir 18h – 21h du mercredi au dimanche.<br>Paiement en espèces à la remise.</div></div>`, token ? unsubscribeLine(site, token) : '');
+        <b>À emporter</b> : midi 11h30 – 14h tous les jours, soir 18h – 21h du mercredi au dimanche.<br>Paiement à la remise : carte bleue, espèces ou <b>tickets restaurant</b>.</div></div>`, token ? unsubscribeLine(site, token) : '');
   const text = `${label} (${day}) chez Kay Charly\n\n${items.map((i) => `• ${i.name} — ${Number(i.price) > 0 ? euros(i.price) : 'Sur appel'}`).join('\n')}\n\nCommander : ${site}#carte\nLivraison gratuite : commandez avant 10h, livré entre 10h et 11h30.\n${SHOP.phone}`;
   return { subject: `${opts.update ? '🔄' : '🍛'} ${label} chez Kay Charly · ${day}`, body, text: (note ? `Le mot de Kay Charly : ${note}\n\n` : '') + text, count: items.length };
 }
