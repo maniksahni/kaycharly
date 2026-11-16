@@ -11,7 +11,7 @@
 
 import {
   sendEmail, ownerEmail, customerOrderEmail, ownerOrderEmail, feedbackEmail, menuEmail, printAlertEmail,
-  feedbackDue, parisDate, isDelivery,
+  feedbackDue, parisDate, isDelivery, parisParts, parisTime,
 } from './mail.js';
 import { SCHEMA } from './schema.js';
 
@@ -158,12 +158,13 @@ async function rest(env, req, url) {
   const body = req.method === 'DELETE' ? null : await req.json().catch(() => deny(400, 'Requête invalide'));
 
   if (table === 'kc_menu') {
-    if (req.method === 'DELETE') { await env.DB.prepare('DELETE FROM kc_menu WHERE id = ?').bind(filterId(p, 'id')).run(); return json(undefined, 204); }
+    if (req.method === 'DELETE') { await env.DB.prepare('DELETE FROM kc_menu WHERE id = ?').bind(filterId(p, 'id')).run(); await menuChanged(env); return json(undefined, 204); }
     if (req.method === 'PATCH') {
       const id = filterId(p, 'id'), set = [], args = [];
       for (const k of ['name', 'description', 'category', 'price', 'photo', 'available', 'featured', 'sort_order']) if (k in body) { set.push(`${k} = ?`); args.push(menuValue(k, body[k])); }
       if (!set.length) deny(400, 'Rien à modifier');
       await env.DB.prepare(`UPDATE kc_menu SET ${set.join(', ')}, updated_at = ? WHERE id = ?`).bind(...args, now(), id).run();
+      await menuChanged(env);
       return json(undefined, 204);
     }
     if (req.method === 'POST') {   // upsert one dish (or several)
@@ -175,6 +176,7 @@ async function rest(env, req, url) {
           ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, category = excluded.category, price = excluded.price, photo = excluded.photo,
           available = excluded.available, featured = excluded.featured, sort_order = excluded.sort_order, updated_at = excluded.updated_at`).bind(id, ...v, now());
       }));
+      await menuChanged(env);
       return json(undefined, 201);
     }
   }
@@ -446,7 +448,38 @@ async function runMenu(env, site, body) {
     (await sendEmail(env, r.email, { subject: mail.subject, html: mail.body(r.token), text: mail.text + `\n\nNe plus recevoir ces e-mails : ${unsub}` }, { unsubscribeUrl: unsub })) ? sent++ : failed++;
   }
   await env.DB.prepare("INSERT INTO kc_mailings (kind, subject, recipients, sent, failed, created_at) VALUES ('menu', ?, ?, ?, ?, ?)").bind(mail.subject.slice(0, 200), list.length, sent, failed, now()).run();
+  await setState(env, 'menu_sent_sig', menuSig(items));   // the automatic e-mail will not send this same menu again
   return json({ recipients: list.length, sent, failed });
+}
+
+// ---------- automatic menu e-mail ----------
+// The owner sets the dishes in the admin; the customers get « le menu d'aujourd'hui » by e-mail by themselves:
+//   • change made in the morning (7h–11h)  → sent a few minutes after the last change, the same morning;
+//   • change made later (afternoon, evening, night: usually tomorrow's menu) → sent the next morning at 7h30.
+// Sent only if the available « Plats du jour » differ from the last menu e-mail (off then on again sends nothing).
+const MENU_SETTLE = 3 * 60000;
+const getState = async (env, key) => (await env.DB.prepare('SELECT value, updated_at FROM kc_state WHERE key = ?').bind(key).first()) || null;
+const setState = (env, key, value) => env.DB.prepare('INSERT INTO kc_state (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').bind(key, String(value), now()).run();
+const menuChanged = (env) => setState(env, 'menu_changed_at', now());
+const menuSig = (items) => JSON.stringify(items.map((i) => [i.name, i.price, i.description || '']));
+// When the menu changed at time t goes out.
+function menuSendAt(t) {
+  const p = parisParts(t), mins = p.h * 60 + p.mi;
+  if (mins >= 7 * 60 && mins < 11 * 60) return t + MENU_SETTLE;                          // morning: same morning
+  return parisTime(p.y, p.m, p.d + (mins < 7 * 60 + 30 ? 0 : 1), 7, 30);                   // otherwise: next 7h30
+}
+async function runAutoMenu(env, site, at = Date.now()) {
+  const changed = await getState(env, 'menu_changed_at');
+  if (!changed?.value) return { pending: false };
+  const sendAt = menuSendAt(new Date(changed.value).getTime());
+  if (at < sendAt) return { pending: true, sendAt: new Date(sendAt).toISOString() };
+  const { results: items } = await env.DB.prepare("SELECT name, description, price FROM kc_menu WHERE category = 'Plats du jour' AND available = 1 ORDER BY sort_order").all();
+  const done = () => env.DB.prepare("DELETE FROM kc_state WHERE key = 'menu_changed_at' AND value = ?").bind(changed.value).run();
+  if (!items.length) { await done(); return { sent: 0, reason: 'aucun plat du jour disponible' }; }
+  if (menuSig(items) === (await getState(env, 'menu_sent_sig'))?.value) { await done(); return { sent: 0, reason: 'menu identique au dernier envoi' }; }
+  await done();   // claimed before sending: a second run never sends it twice
+  const res = await runMenu(env, site, { when: 'aujourdhui', force: true, auto: true });
+  return { auto: true, ...(await res.json()) };
 }
 
 // A "Nouvelle" order of the last 3 hours, more than 10 minutes old, never printed → one email to the owner.
@@ -648,6 +681,7 @@ export default {
     ctx.waitUntil((async () => {
       try { console.log('feedback', JSON.stringify(await runFeedback(env, site))); } catch (e) { console.error('feedback failed', String(e)); }
       try { console.log('print alert', JSON.stringify(await runPrintAlert(env, site))); } catch (e) { console.error('print alert failed', String(e)); }
+      try { console.log('auto menu', JSON.stringify(await runAutoMenu(env, site))); } catch (e) { console.error('auto menu failed', String(e)); }
     })());
   },
 };

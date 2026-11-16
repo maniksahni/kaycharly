@@ -18,7 +18,7 @@
   "kv_namespaces": [
     { "binding": "PHOTOS", "id": "6aa45850fb05427b928774cca32d1373" }
   ],
-  "triggers": { "crons": ["*/10 * * * *"] },
+  "triggers": { "crons": ["*/5 * * * *"] },
   "vars": {
     "SITE_ORIGIN": "https://kaycharly.fr",
     "OWNER_EMAIL": "kaycharly91750@gmail.com",

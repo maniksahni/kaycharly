@@ -7,7 +7,7 @@ Everything runs on one Cloudflare account. Brevo sends the emails.
 - **Worker `kaycharly`** (`worker/index.js`, `wrangler.jsonc`): serves the pages (repository root; `.assetsignore` hides the server files) and the API the pages call (`/rest/v1`, `/auth/v1`, `/functions/v1`, `/storage/v1`). GitHub `main` deploys it automatically (Workers Builds).
 - **D1 database `kaycharly`** (`worker/schema.sql`; the Worker creates the tables itself): menu, orders, email preferences, reviews, mailings and printer status/events.
 - **KV `kaycharly-photos`**: menu photos uploaded from the admin.
-- **Cron, every 10 minutes**: « Comment était votre repas ? » emails and the unprinted-order alert.
+- **Cron, every 5 minutes**: « Comment était votre repas ? » emails, the unprinted-order alert and the automatic menu e-mail.
 - **Secrets** (Cloudflare → Worker → Settings → Variables and Secrets):
   - `ADMIN_PASSWORD`: the admin login.
   - `BREVO_API_KEY`: an `xkeysib-` API key with only the "Transactional emails" permission.
@@ -121,7 +121,11 @@ If a « Nouvelle » order is more than 10 minutes old and has not printed, the c
 
 ## Customer emails
 
-- **Menu du jour**: admin → Carte → « 📣 Envoyer le menu aux clients ». You get a preview, the recipient list and a test send first. Nothing is sent automatically.
+- **Menu du jour**: admin → Carte → « 📣 Envoyer le menu aux clients ». You get a preview, the recipient list and a test send first.
+  It is also sent **automatically** (`runAutoMenu`, cron every 5 min) after the owner changes the dishes:
+  - A change made between 7h and 11h is sent a few minutes after the last change, the same morning.
+  - Any other change (usually tomorrow's menu, set in the afternoon or evening) is sent the next morning at 7h30, as « le menu d'aujourd'hui ».
+  - Nothing is sent if the available « Plats du jour » are the same as in the last menu e-mail (`kc_state.menu_sent_sig`).
 - **« Comment était votre repas ? »**: sent by the cron, once per order, after the service ends:
   - delivery: 12h00;
   - pickup: 14h30, or 21h30 for the evening.

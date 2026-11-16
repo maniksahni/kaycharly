@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS kc_feedback (
   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+-- Small key/value store: when the menu last changed, what menu was last emailed (automatic menu e-mail).
+CREATE TABLE IF NOT EXISTS kc_state (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS kc_mailings (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   kind       TEXT NOT NULL,
