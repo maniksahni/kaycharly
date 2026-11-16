@@ -572,6 +572,15 @@ async function llmsTxt(env) {
     '- Paiement à la remise de la commande : carte bleue, espèces ou tickets restaurant (tickets restaurant acceptés)',
     '- Instagram : https://www.instagram.com/kay.charly91/ · Facebook : https://www.facebook.com/kay.charly91',
     '',
+    '## Questions fréquentes',
+    '- Tickets restaurant acceptés ? Oui, ainsi que la carte bleue et les espèces, à la remise de la commande.',
+    '- Livraison ? Oui, sans frais à Champcueil, Chevannes, Mondeville, Ballancourt-sur-Essonne, Mennecy, Ormoy et Fontenay-le-Vicomte : commande avant 10h, livraison entre 10h et 11h30.',
+    '- Manger sur place ? Oui, sur place ou à emporter.',
+    '- Commander ? En ligne sur https://kaycharly.fr, par téléphone au 07 60 62 95 72, ou au restaurant.',
+    '- Le soir ? Poulet-frites du mercredi au dimanche, 18h–21h.',
+    '- Pâtés salés ? Le week-end, sur commande (appeler la boutique).',
+    '- Restaurant antillais près de Mennecy, Ballancourt, Corbeil-Essonnes ou Évry ? Kay Charly est à Champcueil (91750), dans l’Essonne.',
+    '',
     '## La carte (prix en euros, mise à jour en direct)',
   ];
   for (const [name, items] of cats) {
