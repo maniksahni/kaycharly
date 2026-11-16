@@ -97,7 +97,10 @@ function synchroniser() {
     ['Annulées', t.annulees],
     ['Commandes en livraison (hors annulées)', modes.Livraison],
     ['Commandes à emporter (hors annulées)', modes['À emporter']],
- ['Chiffre du jour (€, hors annulées)', t.ca],
+    ['Chiffre du jour (€, hors annulées)', t.ca],
+    ['   dont carte bleue (€)', pays['Carte bleue']],
+    ['   dont espèces (€)', pays['Espèces']],
+    ['   dont tickets restaurant (€)', pays['Tickets restaurant']],
     ['Clients au total', (data.clients || []).length],
     ['Avis reçus (moyenne)', reviews.length + (reviews.length ? ' (' + avg + ' / 5)' : '')],
   ], 'Mis à jour le ' + now + ' · se met à jour toutes les 10 minutes');
