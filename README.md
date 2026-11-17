@@ -141,6 +141,16 @@ If a « Nouvelle » order is more than 10 minutes old and has not printed, the c
   - Every 10 minutes it rewrites five tabs: Commandes, Clients, Avis, Par jour and Aujourd'hui.
   - It only reads.
 
+## Security headers
+
+Every page and API answer carries a set of security headers:
+- **HSTS** (1 year);
+- **X-Frame-Options DENY** and CSP `frame-ancestors 'none'`, so no clickjacking;
+- **nosniff**, **Referrer-Policy**, **Permissions-Policy** (camera, microphone and payment off; Bluetooth, serial and USB stay allowed for the printer) and **COOP**;
+- a **Content-Security-Policy**: only the site itself and Google Fonts; no plugins, no foreign forms or `<base>`.
+
+Static files get them from `_headers`; the Worker adds the same ones to everything it answers itself (`withSecurity`).
+
 ## Search engines and AI assistants (SEO / GEO)
 
 - **`index.html` `<head>`**:
@@ -149,6 +159,8 @@ If a « Nouvelle » order is more than 10 minutes old and has not printed, the c
   - geo tags;
   - `Restaurant` schema.org data: address, GPS, phone, hours, delivery towns, cuisine, order action and social profiles.
 - **The Worker adds the live menu** (`Menu`, with sections, dishes, prices and today's availability) to the home page.
+- **No-JavaScript menu:** the Worker also injects the full live menu as plain HTML in a `<noscript>` inside `#carte`, for crawlers and AI assistants that do not run JavaScript.
+- **`sitemap.xml`** also lists the main photos (image sitemap).
 - **`/llms.txt`** is a plain-text summary with the same live menu, for AI assistants.
 - **`robots.txt`** allows everything public and blocks the admin, avis, désinscription and API pages. It points to `sitemap.xml`. The admin page is also `noindex`.
 - **Google Search Console** (kaycharly37 account): URL-prefix property `https://kaycharly.fr/`.

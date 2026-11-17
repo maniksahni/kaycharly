@@ -21,6 +21,21 @@ const ADMIN_EMAIL = 'admin@kaycharly.example';   // the admin page logs in with 
 
 // ---------- responses ----------
 const SECURITY = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin' };
+// Same headers as the _headers file (static files), added to every response the Worker makes itself.
+const PAGE_SECURITY = {
+  ...SECURITY,
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'X-Frame-Options': 'DENY',
+  'Permissions-Policy': 'camera=(), microphone=(), payment=(), browsing-topics=()',
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests",
+};
+function withSecurity(res) {
+  if (res.status === 101) return res;
+  const h = new Headers(res.headers);
+  for (const [k, v] of Object.entries(PAGE_SECURITY)) if (!h.has(k)) h.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
 const json = (body, status = 200, extra = {}) => new Response(body === undefined ? null : JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY, ...extra },
 });
@@ -584,7 +599,14 @@ async function homePage(env, req) {
       })),
     })),
   };
-  return new HTMLRewriter().on('head', { element(e) { e.append(`<script type="application/ld+json">${esc(JSON.stringify(menu))}</script>`, { html: true }); } }).transform(page);
+  // The same menu as plain HTML for readers that do not run JavaScript (AI assistants, some crawlers). The page's
+  // script replaces the contents of #carte, so visitors never see it twice.
+  const h = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const plain = `<noscript><div class="wrap gutter"><h2>La carte de Kay Charly</h2>${[...cats].map(([name, items]) => `<h3>${h(name)}</h3><ul>${items.map((i) => `<li>${h(i.name)} — ${h(euros(i.price))}${i.description ? ' · ' + h(i.description) : ''}${i.available ? '' : ' (indisponible aujourd’hui)'}</li>`).join('')}</ul>`).join('')}<p>Commandez au 07 60 62 95 72 ou sur place, 19 rue de la Marivoise, 91750 Champcueil.</p></div></noscript>`;
+  return new HTMLRewriter()
+    .on('head', { element(e) { e.append(`<script type="application/ld+json">${esc(JSON.stringify(menu))}</script>`, { html: true }); } })
+    .on('section#carte', { element(e) { e.append(plain, { html: true }); } })
+    .transform(page);
 }
 async function llmsTxt(env) {
   const cats = await publicMenu(env);
@@ -635,8 +657,7 @@ function ensureSchema(env) {
 }
 
 // ---------- entry points ----------
-export default {
-  async fetch(req, env) {
+async function handle(req, env) {
     const url = new URL(req.url);
     // Same-origin pages only (no other website may call the API from a browser).
     const origin = req.headers.get('origin');
@@ -672,9 +693,12 @@ export default {
       console.error('Kay Charly API error', url.pathname, String(e && e.stack || e));
       return fail('Service momentanément indisponible', 503);
     }
-  },
+}
 
-  // Every 10 minutes: feedback emails + unprinted-order alert.
+export default {
+  async fetch(req, env, ctx) { return withSecurity(await handle(req, env, ctx)); },
+
+  // Every 5 minutes: feedback emails, unprinted-order alert, automatic menu e-mail.
   async scheduled(event, env, ctx) {
     await ensureSchema(env);
     const site = (env.SITE_ORIGIN || 'https://kaycharly.fr').replace(/\/$/, '') + '/';

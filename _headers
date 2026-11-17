@@ -1,0 +1,15 @@
+# Security headers for every static file (Cloudflare Workers static assets). The Worker adds the same ones to
+# what it answers itself (home page, API, llms.txt, redirects): worker/index.js → withSecurity().
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), payment=(), browsing-topics=()
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
+
+/img/*
+  Cache-Control: public, max-age=604800
+/m/*
+  Cache-Control: public, max-age=604800
